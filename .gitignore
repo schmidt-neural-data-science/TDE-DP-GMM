@@ -1,0 +1,33 @@
+cat > .gitignore <<'EOF'
+
+
+**/.ipynb_checkpoints/
+
+# Local simulation/data artifacts
+notebooks/data/
+
+# Common large artifacts
+*.npz
+*.npy
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.joblib
+*.h5
+*.hdf5
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+
+# Python caches
+__pycache__/
+*.pyc
+EOF
+data/
+**/.ipynb_checkpoints/
+notebooks/data/
+*.npz

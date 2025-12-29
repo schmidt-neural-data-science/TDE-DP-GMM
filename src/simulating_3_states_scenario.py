@@ -85,6 +85,7 @@ data_dir = "../data/simulations"
 data_file = f"../data/simulations/{simulation_condition}_data.npz"
 
 
+
 os.makedirs(figure_dir, exist_ok=True)
 os.makedirs(data_dir, exist_ok = True)
 
