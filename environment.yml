@@ -1,0 +1,25 @@
+name: pymc_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - setuptools>=61
+  - wheel
+  - pymc=5.*
+  - jax
+  - jaxlib
+  - numpyro
+  - funsor
+  - pyro-ppl
+  - pytorch
+  - ipykernel
+  - pywavelets
+
+
+  - pip:
+      - neurodsp
+      - git+ssh://git@github.com/schmidt-neural-data-science/TDE-DP-GMM.git@main#egg=nds_toolbox
+      # If fooof isn't on conda-forge for your platform, uncomment:
+      # - fooof
+
