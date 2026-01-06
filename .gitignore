@@ -31,3 +31,6 @@ data/
 **/.ipynb_checkpoints/
 notebooks/data/
 *.npz
+
+# Generated figures
+figures/
