@@ -152,6 +152,9 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
 
             est_states = get_states(tde_signal, trunc_means, trunc_covs, trunc_weights)
 
+            if verbose:
+                print("# of active states: ", num_states_active)
+
             est_params = {
                 "alpha": alpha,
                 "weights": trunc_weights,
@@ -213,6 +216,10 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
 
         mcc = matthews_corrcoef(true_states, est_states)
 
+        if verbose:
+            print("MCC:", mcc)
+
+
     # 4) Reorder estimated parameters to match chosen order
 
     if method == "DP-GMM":
@@ -236,6 +243,9 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
         est_params["means"]   = means
         est_params["covs"]    = covs
 
+        summary_stats = summarize_states(signal, est_states, fs,
+                                         num_states=len(weights)) if compute_summary_stats else None
+
     elif method == "HMM":
         initial_probs    = est_params["initial_probs"]
         transition_probs = est_params["transition_probs"]
@@ -253,17 +263,13 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
         est_params["covs"]             = covs[order]
         est_params["stationary_dist"]  = stationary_dist[order]
 
+        summary_stats = summarize_states(signal, est_states, fs,
+                                         num_states=num_states) if compute_summary_stats else None
 
 
-    num_states_eff = _infer_K(method, true_states, est_states, est_params, fallback_K=num_states)
-    summary_stats = summarize_states(signal, est_states, fs, num_states=num_states_eff) if compute_summary_stats else None
-
-    if verbose:
-        print("MCC:", mcc)
-        print("# of active states: ", num_states_eff)
 
     return {
-        "num_states": num_states_eff,
+        "num_states": num_states,
         "num_emb": num_emb,
         "est_states": est_states,
         "order": order,
