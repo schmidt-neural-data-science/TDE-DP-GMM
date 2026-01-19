@@ -42,6 +42,13 @@ def match_states(one_hot_states1, one_hot_states2, verbose=False):
 
 
 
+
+
+
+
+
+
+
 from collections.abc import Mapping
 
 def _record(*, strict: bool = True, **sections: Mapping):
@@ -78,41 +85,73 @@ from nds_toolbox.analysis.utils import imputing_mode
 from sklearn.metrics import matthews_corrcoef
 
 
+import numpy as np
+from sklearn.metrics import matthews_corrcoef
+
+def _infer_K(method, true_states, est_states, est_params, fallback_K: int):
+    Ks = [int(fallback_K)]
+
+    if true_states is not None and len(true_states) > 0:
+        Ks.append(int(np.max(true_states)) + 1)
+
+    if est_states is not None and len(est_states) > 0:
+        Ks.append(int(np.max(est_states)) + 1)
+
+    # Parameter-implied K (important after truncation)
+    if method == "DP-GMM" and est_params is not None and "weights" in est_params:
+        Ks.append(int(len(est_params["weights"])))
+    if method == "HMM" and est_params is not None and "means" in est_params:
+        Ks.append(int(est_params["means"].shape[0]))
+
+    return max(Ks)
+
+
+def _order_for_params(order, K_params: int):
+    """
+    Convert an 'order' over a larger state space (e.g., K_true) into a valid
+    permutation over parameter indices [0..K_params-1].
+    - drops indices >= K_params
+    - appends any missing indices to keep length K_params
+    """
+    order = np.asarray(order, dtype=int)
+    order_in = order[order < K_params]                 # keep only valid param indices
+    missing = np.setdiff1d(np.arange(K_params), order_in, assume_unique=False)
+    return np.concatenate([order_in, missing])
+
+
+
+
 def return_performance_info(*, method: str, signal, fs, true_states, est_states, min_samples,
-                            num_states: int, num_emb: int, est_params: dict, loss: float, tde_signal = None, imputing_spurious_states = None, truncate_weights = None, compute_summary_stats = False):
+                            num_states: int, num_emb: int, est_params: dict, loss: float,
+                            tde_signal=None, imputing_spurious_states=None, truncate_weights=None,
+                            compute_summary_stats=False, verbose=False):
     """
     Computes performance metrics and state summary after reordering estimated states to best match ground truth.
+
     """
 
-    if true_states is None:
-        mcc = None
-        order = None
-    else:
-        est_states_onehot = np.eye(num_states)[est_states]
-        true_states_onehot = np.eye(num_states)[true_states]
-        order, reordered_est_states_onehot = match_states(true_states_onehot, est_states_onehot, verbose=False)
-        est_states = np.argmax(reordered_est_states_onehot, axis=1)
+    order = None
+    mcc = None
 
-    # Reorder estimated parameters to match true state order
+    # 1) Build est_params / est_states first (incl. truncation)
+
     if method == "DP-GMM":
         alpha = est_params["alpha"]
         weights = est_params["weights"]
         means = est_params["means"]
         covs = est_params["covs"]
 
-        if order is None:
-            order = np.argsort(-weights)  # from large to small
-            est_states = np.argsort(order)[est_states]
-
-        weights = weights[order]
-        means = means[order]
-        covs = covs[order]
-
+        # If you later match to truth, you'll overwrite order; for now keep params in current order
+        # If no truth, you'll sort by weights later.
         if truncate_weights:
-            print("Truncating weights")
-            trunc_means, trunc_covs, trunc_weights, trunc_info = truncate(means, covs, weights, verbose=True, return_info= True)
-            #override the estimated states with truncated params
+            trunc_means, trunc_covs, trunc_weights, trunc_info = truncate(
+                means, covs, weights, verbose=True, return_info=True
+            )
+
+            num_states_active = int(len(trunc_weights))  # after truncation
+
             est_states = get_states(tde_signal, trunc_means, trunc_covs, trunc_weights)
+
             est_params = {
                 "alpha": alpha,
                 "weights": trunc_weights,
@@ -122,11 +161,9 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
                 "untrunc_covs": covs,
                 "untrunc_weights": weights,
                 "trunc_info": trunc_info,
+                "num_states_active": num_states_active,
             }
-
-
         else:
-
             est_params = {
                 "alpha": alpha,
                 "weights": weights,
@@ -134,28 +171,18 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
                 "covs": covs,
             }
 
-
     elif method == "HMM":
+        # safer than .values() ordering, but I’m not touching that here.
         initial_probs, transition_probs, means, covs = est_params.values()
         stationary_dist = compute_stationary_distribution(transition_probs)
-
-        if order is None:
-            order = np.argsort(-stationary_dist)  # from large to small
-            est_states = np.argsort(order)[est_states]
-
-        initial_probs = initial_probs[order]
-        transition_probs = transition_probs[order][:, order]
-        means = means[order]
-        covs = covs[order]
-        stationary_dist = stationary_dist[order]
-
 
         est_params = {
             "initial_probs": initial_probs,
             "transition_probs": transition_probs,
             "means": means,
             "covs": covs,
-            "stationary_dist":stationary_dist}
+            "stationary_dist": stationary_dist,
+        }
 
     elif method == "Thresholding":
         envelped_signal, detect_k, width_k = est_params.values()
@@ -165,24 +192,78 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
             "width_k": width_k,
         }
 
-
+    # 2) Optional imputation
     if imputing_spurious_states:
+        est_states = imputing_mode(est_states, min_samples=min_samples)
 
-
-        est_states = imputing_mode(est_states, min_samples = min_samples)
-
+    # 3) Matching / reordering
 
     if true_states is not None:
+        # infer a K that cannot underflow either labeling scheme
+        K = _infer_K(method, true_states, est_states, est_params, fallback_K=num_states)
+
+
+        true_states_onehot = np.eye(K, dtype=np.float32)[true_states]
+        est_states_onehot = np.eye(K, dtype=np.float32)[est_states]
+
+        order, reordered_est_states_onehot = match_states(
+            true_states_onehot, est_states_onehot, verbose=False
+        )
+        est_states = np.argmax(reordered_est_states_onehot, axis=1)
+
         mcc = matthews_corrcoef(true_states, est_states)
 
+    # 4) Reorder estimated parameters to match chosen order
 
-    if compute_summary_stats:
-        summary_stats = summarize_states(signal, est_states, fs, num_states=num_states)
-    else:
-        summary_stats = None
+    if method == "DP-GMM":
+        weights = est_params["weights"]
+        means   = est_params["means"]
+        covs    = est_params["covs"]
+
+        if order is None:
+            order = np.argsort(-weights)
+            est_states = np.argsort(order)[est_states]
+
+        K_params = means.shape[0]  # == len(weights)
+        order_params = _order_for_params(order, K_params)
+
+        weights = weights[order_params]
+        means = means[order_params]
+        covs = covs[order_params]
+
+
+        est_params["weights"] = weights
+        est_params["means"]   = means
+        est_params["covs"]    = covs
+
+    elif method == "HMM":
+        initial_probs    = est_params["initial_probs"]
+        transition_probs = est_params["transition_probs"]
+        means            = est_params["means"]
+        covs             = est_params["covs"]
+        stationary_dist  = est_params["stationary_dist"]
+
+        if order is None:
+            order = np.argsort(-stationary_dist)
+            est_states = np.argsort(order)[est_states]
+
+        est_params["initial_probs"]    = initial_probs[order]
+        est_params["transition_probs"] = transition_probs[order][:, order]
+        est_params["means"]            = means[order]
+        est_params["covs"]             = covs[order]
+        est_params["stationary_dist"]  = stationary_dist[order]
+
+
+
+    num_states_eff = _infer_K(method, true_states, est_states, est_params, fallback_K=num_states)
+    summary_stats = summarize_states(signal, est_states, fs, num_states=num_states_eff) if compute_summary_stats else None
+
+    if verbose:
+        print("MCC:", mcc)
+        print("# of active states: ", num_states_eff)
 
     return {
-        "num_states": num_states,
+        "num_states": num_states_eff,
         "num_emb": num_emb,
         "est_states": est_states,
         "order": order,
@@ -191,6 +272,7 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
         "mcc": mcc,
         "loss": loss,
     }
+
 
 import time
 from nds_toolbox.analysis.burst_analysis import optimize_threshold_params, thresholding_bursts
@@ -235,9 +317,6 @@ def compare_decoding_performance(*,
     debug_mode = model_info["debug_mode"]
     n_jobs = model_info["n_jobs"]
 
-    if true_states is not None:
-        if num_states < np.unique(true_states).size:
-            raise ValueError("num_states must be >= number of unique true states.")
 
     # Time-delay embedding
     tde_signal = compute_tde(signal, num_emb, verbose=0)
@@ -318,6 +397,7 @@ def compare_decoding_performance(*,
                 min_samples=min_samples,
                 truncate_weights= truncate_weights,
                 compute_summary_stats = compute_summary_stats,
+                verbose = verbose,
             ),
             )
         records.append({"method": "DP-GMM", **dpgmm_record})
@@ -349,6 +429,7 @@ def compare_decoding_performance(*,
                     loss=loss_best,
                     imputing_spurious_states=imputing_spurious_states,
                     compute_summary_stats = compute_summary_stats,
+                    verbose = verbose,
                     min_samples=min_samples,
                     truncate_weights = truncate_weights),
                 )
@@ -412,6 +493,7 @@ def compare_decoding_performance(*,
                 loss=loss_best,
                 imputing_spurious_states=False,
                 compute_summary_stats = compute_summary_stats,
+                verbose = verbose,
                 min_samples=min_samples,
             ),
         )
@@ -438,6 +520,7 @@ def compare_decoding_performance(*,
                     loss=loss_best,
                     imputing_spurious_states=imputing_spurious_states,
                     compute_summary_stats = compute_summary_stats,
+                    verbose = verbose,
                     min_samples=min_samples,
                 ),
             )
