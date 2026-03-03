@@ -87,7 +87,10 @@ data_all = [np.load(f, allow_pickle=True) for f in files]
 fs = 100
 seed = 2025
 
-n_jobs = os.cpu_count()
+n_jobs_all = os.cpu_count()
+print("n_jobs:", n_jobs_all)
+
+n_jobs = 10
 print("n_jobs:", n_jobs)
 
 #%%
@@ -102,6 +105,10 @@ for data in data_all:
 psd_sample = np.array(psd_sample)  # (65, 1, 51)
 mean_psd = np.mean(psd_sample, axis=0)[0]
 
+from scipy.signal import find_peaks
+
+distance_bins = int(4/(f[1] - f[0]))
+peaks, _ = find_peaks(mean_psd, distance= distance_bins)
 
 print(peaks)
 peaks = peaks[1:] #manually remove 2 hz

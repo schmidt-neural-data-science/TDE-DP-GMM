@@ -11,7 +11,7 @@ import numpyro
 import numpyro.distributions as dist
 
 import jax.scipy.stats as jss
-from numpyro.infer.initialization import init_to_median
+from numpyro.infer.initialization import init_to_median, init_to_feasible
 
 
 # see https://github.com/luiarthur/TuringBnpBenchmarks/blob/master/src/dp-gmm/notebooks//dp_sb_gmm_pyro.ipynb
@@ -31,7 +31,9 @@ def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alp
 
     if learn_alpha:
         # hyper prior
-        alpha = numpyro.sample("alpha", dist.HalfCauchy(1.0))
+        #alpha = numpyro.sample("alpha", dist.HalfCauchy(0.5))
+        alpha = numpyro.sample("alpha", dist.Gamma(1.0, 2.0)) # mean = 0.5
+
 
     else:
         alpha = numpyro.deterministic("alpha", jnp.array(alpha_prior))
@@ -40,7 +42,11 @@ def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alp
     with numpyro.plate("v_plates", num_states - 1):
         v = numpyro.sample("v", dist.Beta(1.0, alpha))
 
+    eps = 1e-12
     weights = stick_breaking(v)
+    weights = jnp.clip(weights, eps, 1.0) #avoiding underflow
+    weights = weights / jnp.sum(weights)
+
     numpyro.deterministic("weights", weights)
 
     # --------  component‑specific parameters  ----------------------------
@@ -98,21 +104,24 @@ def _fit_DPGMM(x,
                learn_mean=False,
                learn_alpha=True,
                num_epochs=3000,
-               num_particles=5,
+               num_particles=1,
                batch_size=2 ** 9,
                alpha_prior=1.0,
-               learning_rate=1e-2,
+               learning_rate=5e-2,
                use_epoch_tqdm=False
                ):
     x = jnp.array(x)
-    guide = AutoNormal(dpgmm_model, init_loc_fn=init_to_median)
+    guide = AutoNormal(dpgmm_model, init_loc_fn=init_to_feasible)
 
     # For numerical stability, normalize the scale by the total number of data points.
     scale_factor = 1.0 / float(x.size)
     scaled_model = numpyro.handlers.scale(dpgmm_model, scale=scale_factor)
     scaled_guide = numpyro.handlers.scale(guide, scale=scale_factor)
 
-    optimizer = numpyro.optim.Adam(step_size=learning_rate)
+    optimizer = numpyro.optim.ClippedAdam(step_size=learning_rate,
+                                          b1=0.95,
+                                          b2=0.999,
+                                          clip_norm=10, )
 
     elbo = Trace_ELBO(num_particles=num_particles, vectorize_particles=True)
 
@@ -152,7 +161,7 @@ def fit_DPGMM(
         num_states,
         learn_mean=False,
         learn_alpha=True,
-        num_models=8,
+        num_models=10,
         num_epochs=3000,
         num_particles= 10,
         batch_size=2**10,
@@ -164,7 +173,7 @@ def fit_DPGMM(
         n_jobs=1,  # how many processes (-1 for all cores)
         main_seed=0,  # master seed for all runs
 ):
-    x = jnp.array(data)
+    x = np.array(data)
 
     # --- generate one integer seed per model run ---
     # Use numpy's SeedSequence for independent child seeds (robust & portable)

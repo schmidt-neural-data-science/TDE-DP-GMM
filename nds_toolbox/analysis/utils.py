@@ -8,19 +8,9 @@ def safe_corrcoef(x, y):
 
 
 
-def find_spurious_states(
-        *,
-        states,
-        min_samples,
-        target_state = "all", #or state id
-):
-
-
+def find_spurious_states(*, states, min_samples, target_state="all", missing_value=-1):
     states = np.asarray(states, dtype=int)
-
-    replacement = int(states.max()) + 1
     constrained = states.copy()
-
 
     run_start = 0
     for idx in range(1, len(states) + 1):
@@ -28,14 +18,13 @@ def find_spurious_states(
             run_state = states[run_start]
             run_len   = idx - run_start
 
-            # decide if this run should be inspected
             inspect = (
-                (target_state == "all" and run_state != replacement) or
+                (target_state == "all" and run_state != missing_value) or
                 (target_state != "all" and run_state == target_state)
             )
 
             if inspect and run_len < min_samples:
-                constrained[run_start:idx] = replacement
+                constrained[run_start:idx] = missing_value
 
             run_start = idx
 
@@ -43,69 +32,66 @@ def find_spurious_states(
 
 
 
+import numpy as np
+
 def _imputing_mode(x, *, missing_value, window_size):
-    """
-    imputing most frequent state into missing states (ie, spurious states) by considering a certain window size around the missing value
-    :param x:
-    :param missing_value:
-    :param window_size:
-    :return:
-    """
+    x = np.asarray(x, dtype=int).copy()
     n = x.size
+
     missing_ids = np.flatnonzero(x == missing_value)
-    missing_mask = x == missing_value
-    if missing_mask.all():
-        print("no missing values")
-        return x
+    if missing_ids.size == 0:
+        return x  # no missing values
+
+    if missing_ids.size == n:
+        return x  # all missing
+
     x_copy = x.copy()
-    base_radius = max(1, int(window_size//2))
+    base_radius = max(1, int(window_size // 2))
 
     for i in missing_ids:
         radius = base_radius
-
-        #initial window
-        L = max(0, i - radius)
-        R = min(n, i + radius + 1)
-        win = x_copy[L:R]
-        win = win[win != missing_value]
-
-        while win.size == 0:
-
-            radius += base_radius
+        while True:
             L = max(0, i - radius)
             R = min(n, i + radius + 1)
             win = x_copy[L:R]
             win = win[win != missing_value]
 
-            if L == 0 and R == n:  # nowhere left to expand
+            if win.size > 0:
+                vals, counts = np.unique(win, return_counts=True)
+                fill = vals[np.argmax(counts)]
+                x[i] = fill
+                x_copy[i] = fill
                 break
 
+            if L == 0 and R == n:
+                # nowhere left to expand; leave as missing_value
+                break
 
-        vals, counts = np.unique(win, return_counts=True)
-        x[i] = vals[np.argmax(counts)]
+            radius += base_radius
 
-
-    return np.asarray(x, dtype=int)
-
+    return x
 
 
 
-def imputing_mode(states, *, min_samples, window_size = None):
-
+def imputing_mode(states, *, min_samples, window_size=None, missing_value=-1):
     if window_size is None:
         window_size = min_samples
 
-    states = np.asarray(states, dtype=int)
+    original = np.asarray(states, dtype=int)
+    x = original.copy()
+
+    x = find_spurious_states(states=x, min_samples=min_samples, missing_value=missing_value)
+
+    if np.all(x == missing_value):
+        return original
+
+    x = _imputing_mode(x, missing_value=missing_value, window_size=window_size)
+
+    if np.all(x == missing_value):
+        return original
 
 
-    states = find_spurious_states(states=states,
-                                      min_samples=min_samples,)
-
-    missing_value = int(states.max())  # spurious states are stored as a new state
-
-    states = _imputing_mode(states, missing_value=missing_value, window_size= window_size)
-    return np.asarray(states, dtype = int)
-
+    return np.asarray(x, dtype=int)
 
 
 

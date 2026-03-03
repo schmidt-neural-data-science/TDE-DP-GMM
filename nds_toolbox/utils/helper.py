@@ -2,7 +2,6 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 
-
 def match_states(one_hot_states1, one_hot_states2, verbose=False):
     """
     Matches states from two one-hot encoded matrices by computing the correlation between
@@ -45,6 +44,66 @@ def match_states(one_hot_states1, one_hot_states2, verbose=False):
 
 
 
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+
+def match_states(one_hot_states1, one_hot_states2, verbose=False, eps=1e-12):
+    """
+    Robust state matching:
+    - drops inactive (all-constant) columns before matching to avoid Hungarian ties
+    - matches active columns via correlation
+    - returns a full-length 'order' for original columns of one_hot_states2:
+        matched active columns first (in best-match order), then the remaining columns.
+    """
+    assert one_hot_states1.shape[0] == one_hot_states2.shape[0], "T must match"
+    K1 = one_hot_states1.shape[1]
+    K2 = one_hot_states2.shape[1]
+
+    # Active columns: not constant over time
+    std1 = one_hot_states1.std(axis=0)
+    std2 = one_hot_states2.std(axis=0)
+    active1 = np.where(std1 > eps)[0]
+    active2 = np.where(std2 > eps)[0]
+
+    if verbose:
+        print(f"Active in 1: {len(active1)}/{K1}, Active in 2: {len(active2)}/{K2}")
+
+    # If nothing active, nothing to match
+    if len(active1) == 0 or len(active2) == 0:
+        order = np.arange(K2)
+        return order, one_hot_states2
+
+    # Build correlation matrix only over active columns
+    C = np.zeros((len(active1), len(active2)), dtype=float)
+    for ii, i in enumerate(active1):
+        x = one_hot_states1[:, i]
+        x_std = x.std()
+        for jj, j in enumerate(active2):
+            y = one_hot_states2[:, j]
+            y_std = y.std()
+            if x_std <= eps or y_std <= eps:
+                C[ii, jj] = 0.0
+            else:
+                C[ii, jj] = np.corrcoef(x, y)[0, 1]
+
+    # Hungarian: maximize total correlation
+    row_ind, col_ind = linear_sum_assignment(-C)
+
+
+    # Map: active2[col_ind[k]] is matched to active1[row_ind[k]]
+    matched_active2 = active2[col_ind]
+
+    # Build full order for columns of one_hot_states2
+    remaining2 = np.setdiff1d(np.arange(K2), matched_active2, assume_unique=False)
+    order = np.concatenate([matched_active2, remaining2])
+
+    reordered_one_hot_states2 = one_hot_states2[:, order]
+
+    if verbose:
+        for r, c in zip(row_ind, col_ind):
+            print(f"state1 {active1[r]}  <->  state2 {active2[c]}  corr={C[r,c]:.3f}")
+
+    return order, reordered_one_hot_states2
 
 
 
@@ -141,19 +200,25 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
         means = est_params["means"]
         covs = est_params["covs"]
 
-        # If you later match to truth, you'll overwrite order; for now keep params in current order
-        # If no truth, you'll sort by weights later.
+        order = np.argsort(-weights)
+        weights = weights[order]
+        means = means[order]
+        covs = covs[order]
+
+
+
         if truncate_weights:
             trunc_means, trunc_covs, trunc_weights, trunc_info = truncate(
                 means, covs, weights, verbose=True, return_info=True
             )
 
-            num_states_active = int(len(trunc_weights))  # after truncation
+            num_active_states = int(len(trunc_weights))  # after truncation
 
             est_states = get_states(tde_signal, trunc_means, trunc_covs, trunc_weights)
 
+
             if verbose:
-                print("# of active states: ", num_states_active)
+                print("# of active states: ", num_active_states)
 
             est_params = {
                 "alpha": alpha,
@@ -164,7 +229,7 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
                 "untrunc_covs": covs,
                 "untrunc_weights": weights,
                 "trunc_info": trunc_info,
-                "num_states_active": num_states_active,
+                "num_active_states": num_active_states,
             }
         else:
             est_params = {
@@ -175,7 +240,6 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
             }
 
     elif method == "HMM":
-        # safer than .values() ordering, but I’m not touching that here.
         initial_probs, transition_probs, means, covs = est_params.values()
         stationary_dist = compute_stationary_distribution(transition_probs)
 
@@ -202,12 +266,11 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
     # 3) Matching / reordering
 
     if true_states is not None:
-        # infer a K that cannot underflow either labeling scheme
-        K = _infer_K(method, true_states, est_states, est_params, fallback_K=num_states)
 
 
-        true_states_onehot = np.eye(K, dtype=np.float32)[true_states]
-        est_states_onehot = np.eye(K, dtype=np.float32)[est_states]
+        true_states_onehot = np.eye(true_states.max()+1, dtype=np.float32)[true_states]
+        est_states_onehot = np.eye(est_states.max()+1, dtype=np.float32)[est_states]
+
 
         order, reordered_est_states_onehot = match_states(
             true_states_onehot, est_states_onehot, verbose=False
@@ -227,21 +290,11 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
         means   = est_params["means"]
         covs    = est_params["covs"]
 
-        if order is None:
-            order = np.argsort(-weights)
-            est_states = np.argsort(order)[est_states]
-
-        K_params = means.shape[0]  # == len(weights)
-        order_params = _order_for_params(order, K_params)
-
-        weights = weights[order_params]
-        means = means[order_params]
-        covs = covs[order_params]
-
 
         est_params["weights"] = weights
         est_params["means"]   = means
         est_params["covs"]    = covs
+
 
         summary_stats = summarize_states(signal, est_states, fs,
                                          num_states=len(weights)) if compute_summary_stats else None
