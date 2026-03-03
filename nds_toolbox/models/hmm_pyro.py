@@ -10,7 +10,7 @@ import numpy as np
 from pyro import poutine
 from pyro.infer import SVI, Trace_ELBO
 from pyro.infer.autoguide import AutoNormal
-from pyro.infer.autoguide.initialization import init_to_median
+from pyro.infer.autoguide.initialization import init_to_median, init_to_feasible
 
 
 from tqdm_joblib import tqdm_joblib
@@ -89,13 +89,13 @@ def _fit_HMM(x,
 
     exposed_params = ["initial_probs", "transition_probs", "mean", "sigma", "chol_corr"]
     guide = AutoNormal(poutine.block(hmm_model, expose=exposed_params),
-                       init_loc_fn=init_to_median)
+                       init_loc_fn=init_to_feasible)
 
     scale_factor = 1.0 / (x_tensor.shape[0] * x_tensor.shape[1])
     scaled_model = poutine.scale(hmm_model, scale=scale_factor)
     scaled_guide = poutine.scale(guide, scale=scale_factor)
 
-    optimizer = pyro.optim.Adam({"lr": learning_rate})
+    optimizer = pyro.optim.ClippedAdam({"lr": learning_rate, "betas": (0.95, 0.999)})
     elbo = Trace_ELBO(num_particles=num_particles)
     svi = SVI(scaled_model, scaled_guide, optimizer, loss=elbo)
 
@@ -123,8 +123,8 @@ def fit_HMM(
         learn_mean=False,
         sequence_length=500,
         batch_size=2 ** 4,
-        num_models=8,
-        num_epochs=1000,
+        num_models=10,
+        num_epochs=1500,
         num_particles=1,
         learning_rate=5e-2,
         verbose=False,
