@@ -11,7 +11,7 @@ import itertools
 #%%
 
 total_cores = os.cpu_count() or 1
-inner_n_jobs = total_cores
+inner_n_jobs = 5
 
 
 print("total_cores:", total_cores)
@@ -53,7 +53,6 @@ n_fss     = signal_sample.shape[2]
 ##%%
 seed_base = 2025
 snr = 2
-num_states = 2
 
 freq_range = [10, 20, 30, 40, 50]
 fs_range = [100, 250, 500]
@@ -74,6 +73,9 @@ def _run_one(sample_id, freq_id, fs_id, emb_id):
 
     st = states_sample[sample_id, freq_id, fs_id].astype(int)
 
+    num_states = int(np.ceil(np.log(len(sig))))  # E[K] = a ln n
+
+
     # use different seed for each condition
     seed = int(seed_base + (sample_id * 10000 + freq_id * 100 + fs_id*10 + emb_id) * 997)
 
@@ -88,7 +90,7 @@ def _run_one(sample_id, freq_id, fs_id, emb_id):
     model_info = {
         "seed": seed,
         "use_dpgmm": True,
-        "use_hmm": True,
+        "use_hmm": False,
         "num_states": num_states,
         "num_emb": num_emb,
         "use_model_tqdm": False,
@@ -97,7 +99,7 @@ def _run_one(sample_id, freq_id, fs_id, emb_id):
         "imputing_spurious_states": False,
         "compute_summary_stats": False,
         "min_samples": None,
-        "truncate_weights": False,
+        "truncate_weights": True,
         "debug_mode": False,
         "n_jobs": inner_n_jobs
     }
@@ -127,7 +129,7 @@ all_results = [_run_one(i, j, k, l) for i, j, k, l in bar]
 
 # Save
 os.makedirs(performance_dir, exist_ok=True)
-save_path = os.path.join(performance_dir, f"results_{sim_cond}.pkl")
+save_path = os.path.join(performance_dir, f"results_{sim_cond}_est_k.pkl")
 with open(save_path, "wb") as f:
     pickle.dump(all_results, f)
 print(f"Performance results saved as {save_path}")

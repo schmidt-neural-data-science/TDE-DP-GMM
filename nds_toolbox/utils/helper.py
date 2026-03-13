@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 
-def match_states(one_hot_states1, one_hot_states2, verbose=False):
+def _match_states(one_hot_states1, one_hot_states2, verbose=False):
     """
     Matches states from two one-hot encoded matrices by computing the correlation between
     each pair of columns and finding the best pairing using the Hungarian algorithm.

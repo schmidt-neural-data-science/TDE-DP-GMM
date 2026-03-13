@@ -327,56 +327,86 @@ def extract_params(est_params, learn_mean=True, learn_alpha=True):
 
 import jax.numpy as jnp
 
-def truncate(means, covs, weights, mass_threshold=0.99, verbose=False, return_info=False):
-    """
-    Keep the smallest set of components whose (posterior) mixture weights
-    cumulatively exceed `mass_threshold` (e.g., 0.99). Remaining components
-    are treated as inactive.
 
-    Parameters
-    ----------
-    means : array, shape (K, ...)
-    covs : array, shape (K, ...)
-    weights : array, shape (K,)
-        Posterior mixture weights over the K_upper components.
-    mass_threshold : float
-        Target cumulative mass to retain (default 0.99).
-    """
-    weights = jnp.asarray(weights)
-    K = weights.shape[0]
+def truncate(means, covs, weights, mass_threshold=0.99,
+             remove_edge_states=True, edge_states_cv=0.2,
+             verbose=False, return_info=False):
 
-    # Normalize defensively (posterior weights should already sum to 1, but don't assume).
-    w = weights / jnp.sum(weights)
+    w = jnp.asarray(weights)
+    K = w.shape[0]
 
-    # Sort by weight (descending), then take the smallest k with cumulative mass >= mass_threshold.
+    # ----------------------------
+    # (1) 99% mass truncation first
+    # ----------------------------
     sort_idx = jnp.argsort(w)[::-1]
     w_sorted = w[sort_idx]
     cdf = jnp.cumsum(w_sorted)
 
     reached = cdf >= mass_threshold
-    k = jnp.where(jnp.any(reached), jnp.argmax(reached) + 1, K)  # smallest k meeting threshold
+    k0 = jnp.where(jnp.any(reached), jnp.argmax(reached) + 1, K)
 
-    active_sorted_idx = sort_idx[:k]
-    active_idx = jnp.sort(active_sorted_idx)  # keep original component order
+    active_sorted_idx = sort_idx[:k0]
+    active_idx = jnp.sort(active_sorted_idx)  # indices into original arrays
 
-    trunc_means = means[active_idx]
-    trunc_covs = covs[active_idx]
-    trunc_weights = w[active_idx] / jnp.sum(w[active_idx])
+    # ----------------------------
+    # (2) Remove edge states (within active set)
+    # ----------------------------
+    final_idx = active_idx
+    removed_edge = jnp.array([], dtype=jnp.int32)
 
+    if remove_edge_states:
+        trunc_covs0 = covs[active_idx]
+        diag = jnp.diagonal(trunc_covs0, axis1=-2, axis2=-1)  # (k0, D)
+        mu = jnp.mean(diag, axis=-1)
+        sd = jnp.std(diag, axis=-1)
+        cv_diags = sd / (mu + 1e-12)
+
+        keep_mask = cv_diags <= edge_states_cv
+        removed_edge = jnp.where(~keep_mask)[0]
+
+        if removed_edge.size > 0:
+            # fail-safe: don't drop everything
+            if not bool(jnp.any(keep_mask)):
+                keep_mask = jnp.zeros_like(keep_mask, dtype=bool).at[jnp.argmin(cv_diags)].set(True)
+                removed_edge = jnp.where(~keep_mask)[0]
+
+            final_idx = active_idx[keep_mask]
+
+    # ----------------------------
+    # Final truncated params (after edge removal)
+    # ----------------------------
+    trunc_means = means[final_idx]
+    trunc_covs  = covs[final_idx]
+
+    # weights renormalized over survivors
+    mass_kept_final = jnp.sum(w[final_idx])                 # <-- AFTER edge removal
+    trunc_weights = w[final_idx] / (mass_kept_final + 1e-12)
+
+    # ----------------------------
+    # Info (AFTER edge removal)
+    # ----------------------------
     if return_info or verbose:
-        kept_mass = float(jnp.sum(w[active_idx]))
+        k_final = int(final_idx.shape[0])                   # <-- AFTER edge removal
+        kept_mass = float(mass_kept_final)
         dropped_mass = float(1.0 - kept_mass)
+
         info = (
             "[truncate] "
-            f"mass_threshold={float(mass_threshold):.3f} | kept {int(k)}/{int(K)} ({int(k)/int(K):.1%}) "
+            f"mass_threshold={float(mass_threshold):.3f} | kept {k_final}/{int(K)} "
             f"| mass kept={kept_mass:.4f} | mass dropped={dropped_mass:.4f}"
         )
+        if remove_edge_states:
+            info += f" | removed_edge={int(removed_edge.size)} (cv>{edge_states_cv})"
+
         if verbose:
             print(info)
 
     if return_info:
         return trunc_means, trunc_covs, trunc_weights, info
     return trunc_means, trunc_covs, trunc_weights
+
+
+
 
 
 
