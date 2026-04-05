@@ -103,16 +103,20 @@ fs = 250         # Sampling frequency in Hz.
 n_seconds = 60*3   # Total duration in seconds.
 time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
 
-burst_amp_sigma = 0.1
+
+burst_amp_sigma = 0.15
+tukey_alpha=0.15
+state_transition = 'return_to_baseline'
+
+
 beta = 1 #pink noise
 
 
 # For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 7]
+burst_cycles = [3, 12]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 3.]
-
+noise_duration = [0.5, 2.]
 
 
 
@@ -140,16 +144,13 @@ for sample_id in range(n_samples):
     for freq_id, freqs in enumerate(freqs_dist_range):
 
         # Loop over SNR values.
-        for snr_id, snr in enumerate(snr_range):
+        for snr_id, snr_db in enumerate(snr_range):
             # Simulate a signal with sine bursts.
-            signal_dict = simulate_bursty_signal(
-                time_vec, fs, freqs, burst_cycles, noise_duration,
-                burst_type= "sine",
-                snr_db=snr,
-                beta= beta,
-                burst_amp_sigma = burst_amp_sigma,
-                rng = rng
-            )
+            signal_dict = simulate_bursty_signal(time_vec, fs, freqs, burst_cycles, noise_duration,
+                                                 state_transition=state_transition, burst_type="sine", use_filter=True,
+                                                 snr_db=snr_db, burst_amp_sigma=burst_amp_sigma, beta=beta,
+                                                 tukey_alpha=tukey_alpha, rng=rng)
+
             states_sample[sample_id, freq_id, snr_id, :] = signal_dict["states"]
             bursts_sample[sample_id, freq_id, snr_id, :] =signal_dict["bursts"]
             noise_sample[sample_id, freq_id, snr_id, :] = signal_dict["noise"]

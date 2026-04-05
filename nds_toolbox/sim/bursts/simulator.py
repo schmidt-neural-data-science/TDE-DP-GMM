@@ -33,10 +33,6 @@ def _get_duration(duration_param, rng):
         raise ValueError("Duration parameter must be a scalar or a two-element list/tuple/array.")
 
 
-import numpy as np
-
-import numpy as np
-
 def make_transition_matrix(num_states, state_transition, trans_mat=None):
     if num_states < 2:
         raise ValueError("num_states must be at least 2.")
@@ -74,10 +70,6 @@ def make_transition_matrix(num_states, state_transition, trans_mat=None):
         )
 
     return trans_mat
-
-import numpy as np
-from scipy.signal import sawtooth
-from scipy.signal.windows import tukey
 
 
 def _simulate_bursts(

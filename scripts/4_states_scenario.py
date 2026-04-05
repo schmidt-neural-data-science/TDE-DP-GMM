@@ -32,19 +32,26 @@ snr_db = 2
 freq = np.array([20, 30, 40])  #ground truth = 4 states (including noise state)
 
 
-# For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 7] #[3, 7]
 
-# For noise segments, specify duration in seconds.
-noise_duration = [0.5, 3] #[0.5, 3.]
+burst_amp_sigma = 0.15
+tukey_alpha=0.15
+state_transition = 'return_to_baseline'
 
 
-burst_amp_sigma = 0.1
 beta = 1 #pink noise
 
 
+# For burst segments, specify duration as the number of cycles.
+burst_cycles = [3, 12]
+
+# For noise segments, specify duration in seconds.
+noise_duration = [0.5, 2.]
+
+
+
+
 ## simulate a bursty signal
-signal_dict = simulate_bursty_signal(time_vec, fs, freq, burst_cycles, noise_duration, burst_type = "sine", use_filter= True, snr_db= snr_db, burst_amp_sigma = burst_amp_sigma, beta = beta, rng = rng)
+signal_dict = simulate_bursty_signal(time_vec, fs, freq, burst_cycles, noise_duration, state_transition = state_transition, burst_type = "sine", use_filter= True, snr_db= snr_db, burst_amp_sigma = burst_amp_sigma, beta = beta, tukey_alpha=tukey_alpha, rng = rng)
 
 signal, states, bursts, noise,  = signal_dict.values()
 
