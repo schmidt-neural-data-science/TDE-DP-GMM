@@ -141,8 +141,6 @@ from nds_toolbox.analysis.utils import imputing_mode
 
 
 
-from sklearn.metrics import matthews_corrcoef
-
 
 import numpy as np
 from sklearn.metrics import matthews_corrcoef

@@ -33,159 +33,228 @@ def _get_duration(duration_param, rng):
         raise ValueError("Duration parameter must be a scalar or a two-element list/tuple/array.")
 
 
+import numpy as np
+
+import numpy as np
+
+def make_transition_matrix(num_states, state_transition, trans_mat=None):
+    if num_states < 2:
+        raise ValueError("num_states must be at least 2.")
+
+    if state_transition == "custom":
+        if trans_mat is None:
+            raise ValueError("trans_mat must be provided when state_transition='custom'.")
+        trans_mat = np.asarray(trans_mat, dtype=float)
+
+        if trans_mat.shape != (num_states, num_states):
+            raise ValueError(
+                f"trans_mat must have shape ({num_states}, {num_states}), got {trans_mat.shape}."
+            )
+
+        if not np.allclose(trans_mat.sum(axis=1), 1.0):
+            raise ValueError("Each row of trans_mat must sum to 1.")
+
+    elif state_transition == "uniform":
+        trans_mat = np.ones((num_states, num_states), dtype=float) / num_states
+
+    elif state_transition == "uniform_except_self":
+        trans_mat = np.ones((num_states, num_states), dtype=float)
+        np.fill_diagonal(trans_mat, 0.0)
+        trans_mat /= (num_states - 1)
+
+    elif state_transition == "return_to_baseline":
+        trans_mat = np.zeros((num_states, num_states), dtype=float)
+        trans_mat[0, 1:] = 1.0 / (num_states - 1)  # baseline -> others
+        trans_mat[1:, 0] = 1.0                     # others -> baseline
+
+    else:
+        raise ValueError(
+            "state_transition must be one of: "
+            "'custom', 'uniform', 'uniform_except_self', 'return_to_baseline'."
+        )
+
+    return trans_mat
+
+import numpy as np
+from scipy.signal import sawtooth
+from scipy.signal.windows import tukey
 
 
-def _simulate_bursts(time_vec, fs, f, burst_cycles, noise_duration,
-                           burst_type, burst_amp_sigma=0.1, chi=0.15,
-                           use_tukey=True, tukey_alpha=0.25, power_law_scale = True, rng = None):
+def _simulate_bursts(
+    time_vec,
+    fs,
+    f,
+    burst_cycles,
+    noise_duration,
+    burst_type,
+    state_transition="uniform",
+    transition_matrix=None,
+    burst_amp_sigma=0.1,
+    chi=0.15,
+    use_tukey=True,
+    tukey_alpha=0.25,
+    power_law_scale=True,
+    rng=None,
+):
     """
-    Simulates a signal over a given time vector where each segment is chosen to be either noise or a burst.
-    Burst segments are modulated such that each cycle of the oscillation is scaled by its own random amplitude.
+    Simulate a signal consisting of alternating noise and burst segments.
 
-    State 0 is reserved for noise (its segments are left as zeros so that noise can be added later),
-    while dstates > 0 produce burst segments.
+    State 0 is reserved for noise, and states 1..K are burst states.
 
-    In this version the burst duration is specified as the number of cycles.
-    For each burst, the actual duration in seconds is computed as:
-         duration = (number of cycles) / (burst frequency)
+    Parameters
+    ----------
+    time_vec : array-like
+        Time points for the simulation.
+    fs : float
+        Sampling frequency in Hz.
+    f : scalar or array-like
+        Burst frequency/frequencies in Hz.
+        - If scalar, all burst states use the same frequency.
+        - If array-like, its length defines the number of burst states.
+    burst_cycles : scalar or length-2 sequence
+        Number of cycles per burst.
+        - If scalar, use a fixed number of cycles.
+        - If length-2, draw an integer uniformly from [min, max].
+    noise_duration : scalar or length-2 sequence
+        Noise duration in seconds.
+        - If scalar, use a fixed duration.
+        - If length-2, draw uniformly from [min, max].
+    burst_type : {"sine", "sawtooth"}
+        Waveform used for burst segments.
 
-    This implementation forces an integer number of cycles by computing the number of samples per cycle.
+    state_transition (str): Transition rule governing how the latent state
+        sequence evolves over time.
 
-    Burst and noise durations can be provided as fixed values (scalar) or as a two-element
-    sequence [min, max] to sample a random value uniformly (for noise).
+        - "custom": use the user-specified `transition_matrix`.
+        - "uniform": transition uniformly across all states, including the
+          current state.
+        - "uniform_except_self": transition uniformly across all states
+          except the current state.
+        - "return_to_baseline": treat state 0 as the baseline state; state 0
+          transitions uniformly to nonzero states, and all nonzero states
+          transition back to state 0.
 
-    Parameters:
-        time_vec (array-like): The time points for the simulation.
-        fs (float): The sampling frequency.
-        f (scalar or array-like): Frequency (in Hz) for burst segments.
-            - If a scalar, all burst states use the same frequency.
-            - If array-like, its length must equal the number of burst states.
-        burst_cycles (scalar or two-element sequence): Number of cycles per burst.
-            If a two-element sequence, a random number of cycles is drawn uniformly from that range.
-        noise_duration (scalar or two-element sequence): Duration (in seconds) for each noise segment.
-            If a two-element sequence, a random duration is drawn uniformly from that interval.
-        burst_type (str): "sine" or "sawtooth" determines the waveform for burst segments.
-        chi (float): Exponent controlling the degree of power-law scaling. The default value was obtained from "Quinn2019_BurstHMM/hmm_util_get_simulation.m"
-        burst_amp_sigma (float): Standard deviation for the normal distribution used to generate
-                           the random amplitude per cycle.
-        use_tukey (bool): Whether to apply a Tukey window to each burst.
-        tukey_alpha (float): Alpha parameter for the Tukey window (0 < alpha < 1). Controls
-                             how aggressively the window tapers.
+    transition_matrix (array-like or None): Transition probability matrix
+        used only when `state_transition="custom"`. It must have shape
+        `(num_states, num_states)`, where each row specifies the
+        probabilities of transitioning from one state to all possible next
+        states.
 
-    Returns:
-        signal (ndarray): The simulated signal (same length as time_vec). Burst segments contain oscillations;
-                          noise segments are left as zeros.
-        state_ts (ndarray): A one-hot encoded state vector of shape (len(time_vec),).
-                            Values 0 = noise, 1..num_data = burst states.
+    burst_amp_sigma : float
+        Standard deviation of burst amplitude variation.
+        Currently one amplitude is sampled per burst, not per cycle.
+    chi : float
+        Exponent for optional 1/f^chi amplitude scaling.
+    use_tukey : bool
+        Whether to apply a Tukey window to each burst.
+    tukey_alpha : float
+        Alpha parameter for the Tukey window.
+    power_law_scale : bool
+        Whether to scale burst amplitude by 1 / f^chi when multiple frequencies are used.
+    rng : np.random.Generator or None
+        Random number generator.
+
+    Returns
+    -------
+    signal : ndarray, shape (T,)
+        Simulated signal.
+    states : ndarray, shape (T,)
+        Integer-valued state sequence. State 0 = noise, states 1..K = burst states.
     """
-
-
     if rng is None:
         rng = np.random.default_rng()
 
+    freqs_array = np.atleast_1d(np.asarray(f, dtype=float))
+    if np.any(freqs_array <= 0):
+        raise ValueError("All frequencies in `f` must be positive.")
 
+    use_scalar_freq = freqs_array.size == 1
+    num_states = freqs_array.size + 1  # state 0 = noise
+    init_p = np.ones(num_states, dtype=float) / num_states
 
-    # Convert f to a numpy array for convenience.
-    freqs_array = np.array(f)
-    freqs_size = freqs_array.size
+    signal = np.zeros(len(time_vec), dtype=float)
+    states = np.zeros(len(time_vec), dtype=int)
 
-    if freqs_size == 1:
-        use_scalar_freq = True
-    else:
-        use_scalar_freq = False
+    trans_mat = make_transition_matrix(
+        num_states=num_states,
+        state_transition=state_transition,
+        trans_mat=transition_matrix,
+    )
 
-    # Define the number of states.
-    # State 0 is noise, and states 1, 2, ... are burst segments.
-    num_states = freqs_size + 1
-    init_p = np.ones(num_states) / num_states  # Uniform probabilities.
-
-    signal = np.zeros(len(time_vec))
-    states = np.zeros(len(time_vec))
-
-    t = 0.0  # Global time pointer (in seconds)
+    t = 0.0
     last_state = None
 
-    while t < time_vec[-1]:
-        # Choose a state that is not the same as the last state.
+    while int(round(t * fs)) < len(time_vec):
+        start_idx = int(round(t * fs))
+        if start_idx >= len(time_vec):
+            break
+
+        # sample current state
         if last_state is None:
-            current_state = rng.choice(np.arange(num_states), p=init_p)
+            current_state = rng.choice(num_states, p=init_p)
         else:
-            valid_states = np.delete(np.arange(num_states), last_state)
-            valid_probs = np.delete(init_p, last_state)
-            valid_probs = valid_probs / valid_probs.sum()
-            current_state = rng.choice(valid_states, p=valid_probs)
+            current_state = rng.choice(num_states, p=trans_mat[last_state])
 
         last_state = current_state
-        start_idx = int(t * fs)
 
         if current_state == 0:
-            # --- Noise Segment ---
+            # ----- noise segment -----
             curr_noise_duration = _get_duration(noise_duration, rng)
-            end_idx = start_idx + int(np.round(curr_noise_duration * fs))
-            if end_idx > len(time_vec):
-                end_idx = len(time_vec)
-            states[start_idx:end_idx] = 0  # Noise state.
-            t += curr_noise_duration
+            n_noise_samples = int(round(curr_noise_duration * fs))
+            end_idx = min(start_idx + n_noise_samples, len(time_vec))
+
+            states[start_idx:end_idx] = 0
+
+            # advance using sample count to avoid drift
+            t += (end_idx - start_idx) / fs
+
         else:
-            # --- Burst Segment ---
-            if use_scalar_freq:
-                freq_burst = freqs_array.item()
-            else:
-                # For burst states, use current_state - 1 since state 0 is noise.
-                freq_burst = freqs_array[current_state - 1]
+            # ----- burst segment -----
+            freq_burst = freqs_array[0] if use_scalar_freq else freqs_array[current_state - 1]
 
-            # Determine the number of cycles
             if isinstance(burst_cycles, (list, tuple, np.ndarray)) and len(burst_cycles) == 2:
-                num_cycles = rng.integers(burst_cycles[0], burst_cycles[1]+1)
-
+                num_cycles = rng.integers(burst_cycles[0], burst_cycles[1] + 1)
             elif np.isscalar(burst_cycles):
                 num_cycles = int(burst_cycles)
             else:
-                raise ValueError("burst_cycles must be a scalar or a two-element sequence.")
+                raise ValueError("`burst_cycles` must be a scalar or a two-element sequence.")
 
-            # Compute the number of samples per cycle and then the total samples.
+            if num_cycles <= 0:
+                raise ValueError("`burst_cycles` must be positive.")
+
             samples_per_cycle = int(round(fs / freq_burst))
+            if samples_per_cycle <= 0:
+                raise ValueError("Invalid samples_per_cycle. Check `fs` and `f`.")
+
             total_samples = samples_per_cycle * num_cycles
             aligned_time = np.arange(total_samples) / fs
 
+            burst_amplitude = np.abs(rng.normal(loc=1.0, scale=burst_amp_sigma))
 
-            burst_amplitudes = np.abs(rng.normal(1, burst_amp_sigma))
-            if not use_scalar_freq:
-                if power_law_scale:
-                # 1/f scaling based on burst frequency (when there are multiple frequency components, this scaling matters)
-                    power_law = 1/ (freq_burst ** chi)
-                    burst_amplitudes *= power_law
+            if (not use_scalar_freq) and power_law_scale:
+                burst_amplitude *= 1.0 / (freq_burst ** chi)
 
-
-
-            # Generate the burst waveform.
             if burst_type == "sine":
-                burst_signal = burst_amplitudes * np.sin(2 * np.pi * freq_burst * aligned_time)
+                burst_signal = burst_amplitude * np.sin(2 * np.pi * freq_burst * aligned_time)
             elif burst_type == "sawtooth":
-                burst_signal = burst_amplitudes * sawtooth(2 * np.pi * freq_burst * aligned_time, width=1)
+                burst_signal = burst_amplitude * sawtooth(2 * np.pi * freq_burst * aligned_time, width=1)
             else:
-                raise ValueError("Unsupported burst_type. Choose 'sine' or 'sawtooth'.")
+                raise ValueError("Unsupported `burst_type`. Choose 'sine' or 'sawtooth'.")
 
-            # Apply a Tukey window if requested
             if use_tukey:
-                w = tukey(total_samples, alpha=tukey_alpha)
-                burst_signal *= w
+                burst_signal *= tukey(total_samples, alpha=tukey_alpha)
 
-            end_idx = start_idx + total_samples
-            if end_idx > len(time_vec):
-                # Truncate burst if it exceeds the signal length.
-                burst_signal = burst_signal[:len(time_vec) - start_idx]
-                end_idx = len(time_vec)
+            end_idx = min(start_idx + total_samples, len(time_vec))
+            burst_signal = burst_signal[: end_idx - start_idx]
 
             signal[start_idx:end_idx] = burst_signal
             states[start_idx:end_idx] = current_state
 
-            # Advance time exactly by the burst duration.
-            curr_burst_duration = total_samples / fs
-            t += curr_burst_duration
+            # advance using exact written sample count
+            t += (end_idx - start_idx) / fs
 
+    return signal, states
 
-    return np.array(signal), np.array(states).astype(int)
 
 def _generate_colored_noise(num_data, fs, beta=1, rng=None):
     """
@@ -294,37 +363,6 @@ def _add_noise(bursts, states, noise, snr_db, use_filter = True, fs = None, high
     return bursts_copy + noise_copy, bursts_copy
 
 
-def old_add_noise(bursts, states, noise, snr_db):
-    """
-    Mix a clean burst signal with noise to achieve a target SNR (dB).
-
-    Parameters
-    ----------
-    bursts : 1-D array
-        Array that already contains bursts *and* zeros where there is noise.
-    states : 1-D int array
-        Parallel state vector (0 = noise gaps, >0 = burst indices).
-    noise : 1-D array
-        Noise signal (same length as bursts).
-    snr_db : float
-        Desired SNR, in decibels, defined as
-            10·log10( signal_power / noise_power ).
-
-    Returns
-    -------
-    noisy : 1-D array
-        bursts + scaled_noise
-    """
-    # power of the *non-zero* (burst) part of the signal
-    signal_power = np.mean(bursts[states != 0] ** 2)
-
-    # desired noise power for that SNR
-    snr_lin            = 10 ** (snr_db / 10)
-    desired_noise_power = signal_power / snr_lin
-
-    scaled_noise        = noise * np.sqrt(desired_noise_power)
-
-    return bursts + scaled_noise
 
 
 def simulate_bursty_signal(
@@ -333,6 +371,8 @@ def simulate_bursty_signal(
         freq,
         burst_cycles_param,
         noise_duration_param,
+        state_transition = 'uniform',
+        transition_matrix = None,
         burst_type="sine",
         use_filter = True,
         highpass_f = 0.5,
@@ -354,7 +394,7 @@ def simulate_bursty_signal(
     # Generate bursts using the specified burst type and amplitude scale.
     bursts, states = _simulate_bursts(
         time_vec, fs, freq,
-        burst_cycles_param, noise_duration_param,
+        burst_cycles_param, noise_duration_param,state_transition = state_transition, transition_matrix=transition_matrix,
         burst_type=burst_type, burst_amp_sigma=burst_amp_sigma, chi=chi,
         use_tukey=use_tukey, tukey_alpha=tukey_alpha, rng=rng
     )
