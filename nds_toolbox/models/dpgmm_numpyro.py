@@ -1,4 +1,5 @@
 from tqdm.auto import tqdm
+
 import numpy as np
 
 import os
@@ -84,9 +85,8 @@ def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alp
         numpyro.sample("obs", mixture_dist, obs=batch_data)
 
 
-from numpyro.infer import SVI, TraceEnum_ELBO, Trace_ELBO, init_to_value
-from numpyro.infer.autoguide import AutoDelta, AutoDiagonalNormal, AutoNormal
-from jax import jit
+from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer.autoguide import AutoNormal
 
 
 from joblib import Parallel, delayed
@@ -320,7 +320,6 @@ def extract_params(est_params, learn_mean=True, learn_alpha=True):
     }
 
 
-import jax.numpy as jnp
 import jax.numpy as jnp
 
 
