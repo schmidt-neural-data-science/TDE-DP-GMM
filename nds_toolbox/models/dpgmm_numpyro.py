@@ -328,7 +328,7 @@ def truncate(
     covs,
     weights,
     mass_threshold=0.99,
-    remove_edge_states=False,
+    remove_edge_states=True,
     edge_states_cv=0.1,
     verbose=False,
     return_info=False,
