@@ -31,9 +31,7 @@ def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alp
 
     if learn_alpha:
         # hyper prior
-        #alpha = numpyro.sample("alpha", dist.HalfCauchy(0.5))
-        alpha = numpyro.sample("alpha", dist.Gamma(1.0, 2.0)) # mean = 0.5
-
+        alpha = numpyro.sample("alpha", dist.HalfCauchy(1))
 
     else:
         alpha = numpyro.deterministic("alpha", jnp.array(alpha_prior))
@@ -42,10 +40,7 @@ def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alp
     with numpyro.plate("v_plates", num_states - 1):
         v = numpyro.sample("v", dist.Beta(1.0, alpha))
 
-    eps = 1e-12
     weights = stick_breaking(v)
-    weights = jnp.clip(weights, eps, 1.0) #avoiding underflow
-    weights = weights / jnp.sum(weights)
 
     numpyro.deterministic("weights", weights)
 
@@ -60,10 +55,10 @@ def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alp
             )
             sigma = numpyro.sample("sigma",
                                    dist.HalfCauchy(jnp.ones(num_dim)).to_event(
-                                       1))  # maybe gamma is better? (gamma(1, 10))
+                                       1))
 
             chol_corr = numpyro.sample("chol_corr",
-                                       dist.LKJCholesky(num_dim, concentration=1.0))
+                                       dist.LKJCholesky(num_dim, concentration=1))
 
             L_cov = chol_corr * sigma[..., None]
 
@@ -84,7 +79,7 @@ def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alp
     # mixture assignment + likelihood
     with numpyro.plate("data", num_data, subsample_size=batch_size) as ind:
         batch_data = data[ind]
-        mixture_dist = dist.MixtureSameFamily(dist.Categorical(logits=jnp.log(weights)),
+        mixture_dist = dist.MixtureSameFamily(dist.Categorical(probs=weights),
                                               dist.MultivariateNormal(mean, scale_tril=L_cov))
         numpyro.sample("obs", mixture_dist, obs=batch_data)
 
@@ -271,7 +266,7 @@ def fit_DPGMM(
                 best_seed = child_seeds[i]
 
     if verbose:
-        print(f"Best ELBO: {loss_best:.6g}")
+        print(f"Best negative ELBO: {loss_best:.6g}")
         if best_model_id is not None:
             print(f"Best model ID: {best_model_id}")
 
@@ -326,88 +321,181 @@ def extract_params(est_params, learn_mean=True, learn_alpha=True):
 
 
 import jax.numpy as jnp
+import jax.numpy as jnp
 
 
-def truncate(means, covs, weights, mass_threshold=0.99,
-             remove_edge_states=True, edge_states_cv=0.2,
-             verbose=False, return_info=False):
+def truncate(
+    means,
+    covs,
+    weights,
+    mass_threshold=0.99,
+    remove_edge_states=False,
+    edge_states_cv=0.1,
+    verbose=False,
+    return_info=False,
+):
+    """
+    Truncate mixture components in two stages:
 
+    1. Keep the smallest set of components whose cumulative weight mass
+       reaches `mass_threshold`.
+    2. Optionally remove "edge states" among those retained components,
+       where edge states are defined by a diagonal covariance CV above
+       `edge_states_cv`.
+
+    Parameters
+    ----------
+    means : array, shape (K, ...)
+    covs : array, shape (K, D, D)
+    weights : array, shape (K,)
+    mass_threshold : float
+        Cumulative mass threshold for initial truncation.
+    remove_edge_states : bool
+        Whether to remove edge states after mass truncation.
+    edge_states_cv : float
+        Threshold on coefficient of variation of covariance diagonals.
+    verbose : bool
+        Whether to print a readable summary.
+    return_info : bool
+        Whether to return a summary string in addition to truncated params.
+
+    Returns
+    -------
+    trunc_means, trunc_covs, trunc_weights
+        Truncated parameters after renormalization.
+    info : str, optional
+        Human-readable summary if `return_info=True`.
+    """
+    means = jnp.asarray(means)
+    covs = jnp.asarray(covs)
     w = jnp.asarray(weights)
+
     K = w.shape[0]
 
     # ----------------------------
-    # (1) 99% mass truncation first
+    # (0) Basic validation
+    # ----------------------------
+    if means.shape[0] != K or covs.shape[0] != K:
+        raise ValueError("means, covs, and weights must agree on the first dimension K.")
+
+    if not (0.0 < mass_threshold <= 1.0):
+        raise ValueError("mass_threshold must be in (0, 1].")
+
+    if edge_states_cv < 0:
+        raise ValueError("edge_states_cv must be nonnegative.")
+
+    # ----------------------------
+    # (1) Mass truncation
     # ----------------------------
     sort_idx = jnp.argsort(w)[::-1]
     w_sorted = w[sort_idx]
     cdf = jnp.cumsum(w_sorted)
 
     reached = cdf >= mass_threshold
-    k0 = jnp.where(jnp.any(reached), jnp.argmax(reached) + 1, K)
+    k0 = int(jnp.where(jnp.any(reached), jnp.argmax(reached) + 1, K))
 
     active_sorted_idx = sort_idx[:k0]
-    active_idx = jnp.sort(active_sorted_idx)  # indices into original arrays
+    active_idx = jnp.sort(active_sorted_idx)  # original component indices
+
+    # diagnostics for stage 1
+    mass_kept_stage1 = float(jnp.sum(w[active_idx]))
+    mass_dropped_stage1 = float(1.0 - mass_kept_stage1)
 
     # ----------------------------
-    # (2) Remove edge states (within active set)
+    # (2) Optional edge-state removal
     # ----------------------------
     final_idx = active_idx
-    removed_edge = jnp.array([], dtype=jnp.int32)
+    removed_edge_idx = jnp.array([], dtype=active_idx.dtype)
+    kept_cv = None
+    removed_cv = None
+    cv_diags = None
 
-    if remove_edge_states:
-        trunc_covs0 = covs[active_idx]
-        diag = jnp.diagonal(trunc_covs0, axis1=-2, axis2=-1)  # (k0, D)
+    if remove_edge_states and active_idx.shape[0] > 0:
+        trunc_covs_stage1 = covs[active_idx]  # (k0, D, D)
+        diag = jnp.diagonal(trunc_covs_stage1, axis1=-2, axis2=-1)  # (k0, D)
+
         mu = jnp.mean(diag, axis=-1)
         sd = jnp.std(diag, axis=-1)
         cv_diags = sd / (mu + 1e-12)
 
         keep_mask = cv_diags <= edge_states_cv
-        removed_edge = jnp.where(~keep_mask)[0]
+        removed_edge_idx = active_idx[~keep_mask]   # original component indices
 
-        if removed_edge.size > 0:
-            # fail-safe: don't drop everything
-            if not bool(jnp.any(keep_mask)):
-                keep_mask = jnp.zeros_like(keep_mask, dtype=bool).at[jnp.argmin(cv_diags)].set(True)
-                removed_edge = jnp.where(~keep_mask)[0]
+        # keep at least one state
+        if not bool(jnp.any(keep_mask)):
+            best_idx_within_active = jnp.argmin(cv_diags)
+            keep_mask = jnp.zeros_like(keep_mask, dtype=bool).at[best_idx_within_active].set(True)
+            removed_edge_idx = active_idx[~keep_mask]
 
-            final_idx = active_idx[keep_mask]
+        final_idx = active_idx[keep_mask]
+        kept_cv = cv_diags[keep_mask]
+        removed_cv = cv_diags[~keep_mask]
 
     # ----------------------------
-    # Final truncated params (after edge removal)
+    # (3) Final truncated params
     # ----------------------------
     trunc_means = means[final_idx]
-    trunc_covs  = covs[final_idx]
+    trunc_covs = covs[final_idx]
 
-    # weights renormalized over survivors
-    mass_kept_final = jnp.sum(w[final_idx])                 # <-- AFTER edge removal
+    mass_kept_final = jnp.sum(w[final_idx])
     trunc_weights = w[final_idx] / (mass_kept_final + 1e-12)
 
     # ----------------------------
-    # Info (AFTER edge removal)
+    # (4) output log
     # ----------------------------
+    info = None
     if return_info or verbose:
-        k_final = int(final_idx.shape[0])                   # <-- AFTER edge removal
-        kept_mass = float(mass_kept_final)
-        dropped_mass = float(1.0 - kept_mass)
+        k_mass = int(active_idx.shape[0])
+        k_final = int(final_idx.shape[0])
+        n_edge_removed = int(removed_edge_idx.shape[0])
 
-        info = (
-            "[truncate] "
-            f"mass_threshold={float(mass_threshold):.3f} | kept {k_final}/{int(K)} "
-            f"| mass kept={kept_mass:.4f} | mass dropped={dropped_mass:.4f}"
-        )
+        kept_mass_final = float(mass_kept_final)
+        dropped_mass_final = float(1.0 - kept_mass_final)
+
+        lines = [
+            "[truncate]",
+            f"  total components              : {K}",
+            f"  mass threshold                : {float(mass_threshold):.3f}",
+            "",
+            "  Stage 1: mass truncation",
+            f"    kept components             : {k_mass}",
+            f"    kept original indices       : {list(map(int, active_idx.tolist()))}",
+            f"    retained weight mass        : {mass_kept_stage1:.4f}",
+            f"    dropped weight mass         : {mass_dropped_stage1:.4f}",
+        ]
+
         if remove_edge_states:
-            info += f" | removed_edge={int(removed_edge.size)} (cv>{edge_states_cv})"
+            lines += [
+                "",
+                "  Stage 2: edge-state removal",
+                f"    CV threshold                : {float(edge_states_cv):.3f}",
+                f"    removed components          : {n_edge_removed}",
+                f"    removed original indices    : {list(map(int, removed_edge_idx.tolist()))}",
+            ]
+
+            if cv_diags is not None:
+                lines.append(
+                    f"    CVs in active set           : {[round(float(x), 4) for x in cv_diags.tolist()]}"
+                )
+
+        lines += [
+            "",
+            "  Final result",
+            f"    final components kept       : {k_final}",
+            f"    final original indices      : {list(map(int, final_idx.tolist()))}",
+            f"    final retained weight mass  : {kept_mass_final:.4f}",
+            f"    final dropped weight mass   : {dropped_mass_final:.4f}",
+        ]
+
+        info = "\n".join(lines)
 
         if verbose:
             print(info)
 
     if return_info:
         return trunc_means, trunc_covs, trunc_weights, info
+
     return trunc_means, trunc_covs, trunc_weights
-
-
-
-
 
 
 def mvn_log_likelihood(x, means, covs):
@@ -425,8 +513,9 @@ def mvn_log_likelihood(x, means, covs):
 
 def get_state_probs(x, means, covs, weights):
     log_likelihoods = mvn_log_likelihood(x, means, covs)
+    log_weights = jnp.log(jnp.clip(weights, 1e-12, 1.0))
 
-    log_joint = jnp.log(jnp.array(weights)) + log_likelihoods
+    log_joint =  log_weights + log_likelihoods
     log_normalizer = logsumexp(log_joint, axis=-1, keepdims=True)
     probs = jnp.exp(log_joint - log_normalizer)
 

@@ -90,7 +90,7 @@ seed = 2025
 n_jobs_all = os.cpu_count()
 print("n_jobs:", n_jobs_all)
 
-n_jobs = 10
+n_jobs = 2
 print("n_jobs:", n_jobs)
 
 #%%

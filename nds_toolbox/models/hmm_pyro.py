@@ -214,7 +214,7 @@ def fit_HMM(
 
     exposed_params = ["initial_probs", "transition_probs", "mean", "sigma", "chol_corr"]
     guide_eval = AutoNormal(poutine.block(hmm_model, expose=exposed_params),
-                            init_loc_fn=init_to_median)
+                            init_loc_fn=init_to_feasible)
 
     scale_factor = 1.0 / (x_tensor.shape[0] * x_tensor.shape[1])
     scaled_model_eval = poutine.scale(hmm_model, scale=scale_factor)
@@ -258,7 +258,7 @@ def fit_HMM(
     pyro.clear_param_store()
     pyro.get_param_store().set_state(best_param_state)
     # sample latent sites once under the best parameters
-    est_latents = guide_eval(x_tensor, num_states, learn_mean, None, None)
+    est_latents = guide_eval.median(x_tensor, num_states, learn_mean, None, None)
 
     if learn_mean:
         initial_probs, transition_probs, means, covs = extract_params(est_latents,

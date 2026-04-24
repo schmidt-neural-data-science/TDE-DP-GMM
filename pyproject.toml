@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nds-toolbox"
+version = "0.1.5"
+description = "Neural data science utilities for burst simulation, preprocessing, DPGMM, HMM, and state analysis."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Shoto Yamada", email = "0806shoto@gmail.com" }
+]
+maintainers = [
+  { name = "Shoto Yamada", email = "0806shoto@gmail.com" }
+]
+keywords = [
+  "neuroscience",
+  "neural data",
+  "burst analysis",
+  "hidden markov model",
+  "dirichlet process gaussian mixture model"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+dependencies = [
+  "jax",
+  "joblib",
+  "neurodsp",
+  "numpy >= 1.22, < 2",
+  "numpyro",
+  "pyro-ppl",
+  "PyWavelets",
+  "scikit-learn",
+  "scipy",
+  "torch",
+  "tqdm",
+  "tqdm-joblib"
+]
+
+[project.optional-dependencies]
+dev = [
+  "build",
+  "pytest",
+  "twine"
+]
+
+[project.urls]
+Repository = "https://github.com/schmidt-neural-data-science/TDE-DP-GMM"
+Issues = "https://github.com/schmidt-neural-data-science/TDE-DP-GMM/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nds_toolbox", "nds_toolbox.*"]
+exclude = [
+  "data*",
+  "figures*",
+  "logs*",
+  "notebooks*",
+  "scripts*",
+  "slides*"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

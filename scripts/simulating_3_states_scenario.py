@@ -104,8 +104,8 @@ n_seconds = 60*3   # Total duration in seconds.
 time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
 
 
-burst_amp_sigma = 0.15
-tukey_alpha=0.15
+burst_amp_sigma = 0.1
+tukey_alpha=0.25
 state_transition = 'return_to_baseline'
 
 

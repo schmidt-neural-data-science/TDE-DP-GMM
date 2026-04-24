@@ -1,58 +1,65 @@
-""" Neural Data Science toolbox - public API (install name: nds_toolbox)."""
-from importlib import metadata as _meta
+"""Neural Data Science toolbox.
 
-
-
-
-
-"""
-# --- burst‑HMM shortcuts ----------------------------------------
-from .models.hmm_pyro import (
-    fit_HMM,
-    fit_HMMs,
-    extract_params,
-    compute_viterbi_path,
-)
-
-# --- preprocessing ---------------------------------------------
-
-from .preprocessing.features import (
-    compute_tde,
-    trim_data,
-    amplitude_envelope,
-)
-
-
-from .preprocessing.filters import (
-
-    gaussian_bandpass_filter,
-)
-
-
-
-# --- analysis  --------------------------------------------------
-from .analysis.burst_analysis import (
-    thresholding_bursts,
-    optimize_threshold_params,
-    get_burst_rate,
-    get_power,
-    get_peak_frequency,
-    get_lifetime,
-    get_fractional_occupancy,
-)
-
-
-# --- utils  --------------------------------------------------
-from .utils.helper import (
-    match_states
-)
+Install with ``pip install nds-toolbox`` and import with ``import nds_toolbox``.
 """
 
-__version__ = _meta.version(__name__) if _meta else "0.0.1"
+from importlib import metadata as _metadata
+from pathlib import Path as _Path
+import json as _json
+from urllib.parse import unquote as _unquote
+from urllib.parse import urlparse as _urlparse
 
 
-"""
-Patch	0.1.1 → 0.1.2	Bug fix, typo in docs, tiny internal refactor. No new features, no breaking API.
-Minor	0.1.2 → 0.2.0	Back‑compatible new features (new detector, extra argument with default, speedups).
-Major	0.2.3 → 1.0.0	Breaking changes—renamed functions, different return shapes, removed APIs.
-"""
+_DISTRIBUTION_NAME = "nds-toolbox"
+_FALLBACK_VERSION = "0.1.5"
+
+
+def _is_relative_to(path, parent):
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _distribution_matches_import_path(distribution):
+    package_path = _Path(__file__).resolve()
+
+    try:
+        dist_root = _Path(distribution.locate_file("")).resolve()
+    except Exception:
+        dist_root = None
+
+    if dist_root is not None and _is_relative_to(package_path, dist_root):
+        return True
+
+    direct_url = distribution.read_text("direct_url.json")
+    if not direct_url:
+        return False
+
+    try:
+        url = _json.loads(direct_url).get("url")
+    except (_json.JSONDecodeError, TypeError):
+        return False
+
+    parsed = _urlparse(url)
+    if parsed.scheme != "file":
+        return False
+
+    source_root = _Path(_unquote(parsed.path)).resolve()
+    return _is_relative_to(package_path, source_root)
+
+
+def _get_version():
+    try:
+        distribution = _metadata.distribution(_DISTRIBUTION_NAME)
+    except _metadata.PackageNotFoundError:
+        return _FALLBACK_VERSION
+
+    if not _distribution_matches_import_path(distribution):
+        return _FALLBACK_VERSION
+
+    return distribution.version
+
+
+__version__ = _get_version()

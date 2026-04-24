@@ -33,8 +33,8 @@ freq = np.array([20, 30, 40])  #ground truth = 4 states (including noise state)
 
 
 
-burst_amp_sigma = 0.15
-tukey_alpha=0.15
+burst_amp_sigma = 0.1
+tukey_alpha=0.25
 state_transition = 'return_to_baseline'
 
 
