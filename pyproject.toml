@@ -39,7 +39,7 @@ dependencies = [
   "jax",
   "joblib",
   "neurodsp",
-  "numpy >= 1.26,
+  "numpy >= 1.26",
   "numpyro",
   "pyro-ppl",
   "PyWavelets",

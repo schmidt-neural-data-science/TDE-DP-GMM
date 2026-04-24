@@ -8,7 +8,25 @@ The package is distributed as `nds-toolbox` and imported as `nds_toolbox`.
 
 ## Installation
 
-Install the released package from PyPI:
+Install the current version from GitHub:
+
+```bash
+python -m pip install "git+https://github.com/schmidt-neural-data-science/TDE-DP-GMM.git@main"
+```
+
+In Google Colab:
+
+```python
+!pip install "git+https://github.com/schmidt-neural-data-science/TDE-DP-GMM.git@main"
+
+import nds_toolbox
+print(nds_toolbox.__version__)
+```
+
+If Colab says packages such as NumPy or JAX were already imported, restart the
+runtime before importing `nds_toolbox`.
+
+After the package is published to PyPI, install it with:
 
 ```bash
 python -m pip install nds-toolbox
@@ -44,4 +62,3 @@ from nds_toolbox.models.dpgmm_numpyro import fit_DPGMM
 - `nds_toolbox.models`: Pyro and NumPyro probabilistic state models.
 - `nds_toolbox.analysis`: burst and state summary utilities.
 - `nds_toolbox.utils`: helper functions for decoding and model comparison.
-
