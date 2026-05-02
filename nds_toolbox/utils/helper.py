@@ -189,6 +189,7 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
 
     order = None
     mcc = None
+    summary_stats = None
 
     # 1) Build est_params / est_states first (incl. truncation)
 
@@ -316,6 +317,12 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
 
         summary_stats = summarize_states(signal, est_states, fs,
                                          num_states=num_states) if compute_summary_stats else None
+
+    elif method == "Thresholding":
+        summary_stats = summarize_states(
+            signal, est_states, fs, num_states=int(np.max(est_states)) + 1
+        ) if compute_summary_stats else None
+
 
 
 

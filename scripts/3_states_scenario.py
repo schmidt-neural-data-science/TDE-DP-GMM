@@ -82,6 +82,7 @@ def _run_one(sample_id, freq_id, snr_id):
     return compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
 
 
+
 # Build the parameter grid
 param_iter = itertools.product(
     range(signal_sample.shape[0]),
@@ -101,7 +102,7 @@ all_results = [_run_one(i, j, k) for i, j, k in bar]
 
 # Save
 os.makedirs(performance_dir, exist_ok=True)
-save_path = os.path.join(performance_dir, f"explore_embeddings_{sim_cond}.pkl")
+save_path = os.path.join(performance_dir, f"results_{sim_cond}.pkl")
 with open(save_path, "wb") as f:
     pickle.dump(all_results, f)
 print(f"Performance results saved as {save_path}")

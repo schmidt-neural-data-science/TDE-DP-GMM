@@ -113,10 +113,10 @@ beta = 1 #pink noise
 
 
 # For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 12]
+burst_cycles = [3, 7]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 2.]
+noise_duration = [0.5, 3.]
 
 
 
