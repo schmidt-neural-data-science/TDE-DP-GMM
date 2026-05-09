@@ -34,7 +34,7 @@ freq = np.array([20, 30, 40])  #ground truth = 4 states (including noise state)
 
 
 burst_amp_sigma = 0.1
-tukey_alpha=0.25
+tukey_alpha=0.2
 state_transition = 'return_to_baseline'
 
 
@@ -42,10 +42,10 @@ beta = 1 #pink noise
 
 
 # For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 7]
+burst_cycles = [3, 12]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 3.]
+noise_duration = [0.5, 2.]
 
 
 
