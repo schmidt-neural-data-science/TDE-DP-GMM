@@ -85,7 +85,7 @@ data_all = [np.load(f, allow_pickle=True) for f in files]
 
 
 fs = 100
-seed = 2025
+seed = 2026
 
 n_jobs_all = os.cpu_count()
 print("n_jobs:", n_jobs_all)
@@ -171,7 +171,7 @@ model_info = {
     "filter_freq": None,
     "imputing_spurious_states":True,
     "compute_summary_stats": True,
-    "min_samples":np.round((2/f[peaks.max()])*fs).astype(int),
+    "min_samples":5,  #np.round((2/f[peaks.max()])*fs).astype(int),
     "truncate_weights": True,
     "debug_mode": False,
     "n_jobs": n_jobs

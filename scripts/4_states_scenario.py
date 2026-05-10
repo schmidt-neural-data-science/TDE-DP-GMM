@@ -19,7 +19,7 @@ os.makedirs(data_dir, exist_ok = True)
 
 
 # Set seeds for reproducibility.
-seed = 2025
+seed = 2026
 rng = np.random.default_rng(seed)
 
 # ---parameters for burst simulator---

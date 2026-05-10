@@ -51,7 +51,7 @@ n_fss     = signal_sample.shape[2]
 
 
 ##%%
-seed_base = 2025
+seed_base = 2026
 snr = 2
 
 freq_range = [10, 20, 30, 40, 50]

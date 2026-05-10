@@ -93,7 +93,7 @@ os.makedirs(data_dir, exist_ok = True)
 #global settings (used across all the simulations)
 
 # Set seeds for reproducibility.
-seed = 2025
+seed = 2026
 rng = np.random.default_rng(seed)
 
 # Simulation parameters.

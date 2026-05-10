@@ -28,7 +28,7 @@ signal_sample = sim_data['signal_sample']
 states_sample = sim_data['states_sample']
 print("shape of signal_sample", signal_sample.shape)
 
-seed_base = 2025
+seed_base = 2026
 fs = 250
 
 # Condition 1: frequency distances (3 states)
