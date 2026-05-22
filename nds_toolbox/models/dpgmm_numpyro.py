@@ -518,13 +518,14 @@ def get_state_probs(x, means, covs, weights):
     log_normalizer = logsumexp(log_joint, axis=-1, keepdims=True)
     probs = jnp.exp(log_joint - log_normalizer)
 
-    return probs
+    return np.asarray(probs)
 
 
 def get_states(x, means, covs, weights):
     log_likelihoods = mvn_log_likelihood(x, means, covs)
-    log_joint = jnp.log(jnp.array(weights)) + log_likelihoods
+    log_weights = jnp.log(jnp.clip(weights, 1e-12, 1.0))
+    log_joint = log_weights + log_likelihoods
     states = jnp.argmax(log_joint, axis=-1)
-    return states
+    return np.asarray(states)
 
 
