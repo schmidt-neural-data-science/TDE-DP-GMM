@@ -24,23 +24,26 @@ rng = np.random.default_rng(seed)
 # Simulation parameters.
 n_samples = 5
 
-n_seconds = 60*3   # Total duration in seconds.
+n_seconds = 60*1   # Total duration in seconds.
 
 burst_amp_sigma = 0.1
-tukey_alpha=0.2
-state_transition = 'return_to_baseline'
+tukey_alpha=0.25
 
+state_transition = "return_to_baseline" #'return_to_baseline'
+#uniform, uniform_except_self,
 
 beta = 1 #pink noise
 
-snr_db = 2
 
-# For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 12]
+# For burst segments, specify dur. ation as the number of cycles.
+burst_cycles = [3, 12]  #3, 12
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 2]
+noise_duration = [0.5, 2] #0.5, 2
 
+
+
+snr_db = 2
 
 
 

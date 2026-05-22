@@ -171,7 +171,7 @@ model_info = {
     "filter_freq": None,
     "imputing_spurious_states":True,
     "compute_summary_stats": True,
-    "min_samples":5,  #np.round((2/f[peaks.max()])*fs).astype(int),
+    "min_samples":np.round((2/f[peaks.max()])*fs).astype(int),
     "truncate_weights": True,
     "debug_mode": False,
     "n_jobs": n_jobs

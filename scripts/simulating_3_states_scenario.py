@@ -100,13 +100,13 @@ rng = np.random.default_rng(seed)
 n_samples = 5
 
 fs = 250         # Sampling frequency in Hz.
-n_seconds = 60*3   # Total duration in seconds.
+n_seconds = 60*1   # Total duration in seconds.
 time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
 
 
 burst_amp_sigma = 0.1
-tukey_alpha=0.2
-state_transition = 'return_to_baseline'
+tukey_alpha=0.25
+state_transition = 'uniform_except_self'
 
 
 beta = 1 #pink noise
@@ -116,7 +116,7 @@ beta = 1 #pink noise
 burst_cycles = [3, 12]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 2]
+noise_duration = [0.5, 3]
 
 
 

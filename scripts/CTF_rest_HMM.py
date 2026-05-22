@@ -13,9 +13,9 @@ data_all = [np.load(f, allow_pickle=True) for f in files]
 
 
 fs = 100
-seed = 2025
+seed = 2026
 
-n_jobs = os.cpu_count()
+n_jobs = 2
 print("n_jobs:", n_jobs)
 
 
