@@ -17,7 +17,7 @@ from tqdm_joblib import tqdm_joblib
 from joblib import Parallel, delayed
 
 
-def hmm_model(data, num_states, learn_mean=True, sequence_length=500, batch_size=2 ** 4):
+def hmm_model(data, num_states, learn_mean=False, sequence_length=500, batch_size=2 ** 4):
     """
     Defines an HMM with multivariate normal emissions in Pyro.
 
@@ -67,14 +67,22 @@ def hmm_model(data, num_states, learn_mean=True, sequence_length=500, batch_size
 from pyro.util import set_rng_seed, get_rng_state, set_rng_state
 
 
+
+
+
+
+
+
+
+
 def _fit_HMM(x,
              num_states,
              *,
              learn_mean=False,
              sequence_length=500,
              batch_size=2 **4,
-             num_epochs=3000,
-             num_particles=8,
+             num_epochs=1000,
+             num_particles=1,
              learning_rate=5e-2,
              verbose=False,
              use_epoch_tqdm=False,
