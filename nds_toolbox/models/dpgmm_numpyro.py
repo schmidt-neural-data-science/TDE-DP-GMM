@@ -100,7 +100,7 @@ def _fit_DPGMM(x,
                learn_alpha=True,
                num_epochs=3000,
                num_particles=1,
-               batch_size=2 ** 9,
+               batch_size=2 ** 10,
                alpha_prior=1.0,
                learning_rate=5e-2,
                use_epoch_tqdm=False

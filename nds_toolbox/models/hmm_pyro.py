@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 import numpy as np
 
 from pyro import poutine
-from pyro.infer import SVI, Trace_ELBO
+from pyro.infer import SVI, Trace_ELBO, TraceEnum_ELBO
 from pyro.infer.autoguide import AutoNormal
 from pyro.infer.autoguide.initialization import init_to_median, init_to_feasible
 
@@ -129,8 +129,8 @@ def fit_HMM(
         data,
         num_states,
         learn_mean=False,
-        sequence_length=500,
-        batch_size=2 ** 4,
+        sequence_length=500, #500
+        batch_size= 2 ** 4, #2 ** 4
         num_models=10,
         num_epochs=3000,
         num_particles=1,
