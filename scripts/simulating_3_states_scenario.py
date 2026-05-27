@@ -93,14 +93,13 @@ os.makedirs(data_dir, exist_ok = True)
 #global settings (used across all the simulations)
 
 # Set seeds for reproducibility.
-seed = 2026
-rng = np.random.default_rng(seed)
+seed_base = 2026
 
 # Simulation parameters.
 n_samples = 5
 
 fs = 250         # Sampling frequency in Hz.
-n_seconds = 60*1   # Total duration in seconds.
+n_seconds = 60*3   # Total duration in seconds.
 time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
 
 
@@ -113,10 +112,10 @@ beta = 1 #pink noise
 
 
 # For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 12]
+burst_cycles = [3, 7]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 3]
+noise_duration = [0.1, 3]
 
 
 
@@ -139,13 +138,22 @@ signal_sample = np.zeros((n_samples, len(freqs_dist_range), len(snr_range), len(
 # Loop over the number of samples.
 for sample_id in range(n_samples):
 
+    # One seed per sample
+    sample_seed = seed_base + sample_id
+
 
     # Loop over frequency conditions
     for freq_id, freqs in enumerate(freqs_dist_range):
 
         # Loop over SNR values.
         for snr_id, snr_db in enumerate(snr_range):
+
+            # Reset RNG with the same sample seed for every condition
+            # inside this sample.
+            rng = np.random.default_rng(sample_seed)
+
             # Simulate a signal with sine bursts.
+
             signal_dict = simulate_bursty_signal(time_vec, fs, freqs, burst_cycles, noise_duration,
                                                  state_transition=state_transition, burst_type="sine", use_filter=True,
                                                  snr_db=snr_db, burst_amp_sigma=burst_amp_sigma, beta=beta,

@@ -1,5 +1,3 @@
-import numpy as np
-from scipy.optimize import linear_sum_assignment
 
 
 def _match_states(one_hot_states1, one_hot_states2, verbose=False):
@@ -44,7 +42,6 @@ def _match_states(one_hot_states1, one_hot_states2, verbose=False):
 
 
 
-import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 def match_states(one_hot_states1, one_hot_states2, verbose=False, eps=1e-12):
@@ -251,9 +248,12 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
         }
 
     elif method == "Thresholding":
-        envelped_signal, detect_k, width_k = est_params.values()
+        enveloped_signal = est_params["enveloped_signal"]
+        detect_k = est_params["detect_k"]
+        width_k = est_params["width_k"]
+
         est_params = {
-            "envelped_signal": envelped_signal,
+            "enveloped_signal": enveloped_signal,
             "detect_k": detect_k,
             "width_k": width_k,
         }
@@ -345,34 +345,81 @@ from nds_toolbox.models.hmm_pyro import fit_HMM, compute_viterbi_path, compute_s
 from nds_toolbox.models.dpgmm_numpyro import fit_DPGMM, truncate, get_states
 
 
+def prepare_tde_data(signal, true_states, num_emb):
+    """
+    Prepare time-delay embedded data for TDE-based models.
+
+    Parameters
+    ----------
+    signal : array-like, shape (T,)
+        Raw signal.
+    true_states : array-like or None, shape (T,)
+        Ground-truth states.
+    num_emb : int
+        Number of time-delay embeddings.
+
+    Returns
+    -------
+    tde_signal : array, shape (T_trimmed, num_emb)
+        Time-delay embedded signal.
+    trimmed_signal : array, shape (T_trimmed,)
+        Lag-zero / center signal corresponding to the embedded samples.
+    trimmed_states : array or None, shape (T_trimmed,)
+        Ground-truth states trimmed to match the embedded signal.
+    """
+    tde_signal = compute_tde(signal, num_emb, verbose=0)
+    trimmed_signal = tde_signal[:, num_emb // 2]
+
+    if true_states is None:
+        trimmed_states = None
+    else:
+        trimmed_states = trim_data(true_states, num_emb, verbose=False)
+
+    return tde_signal, trimmed_signal, trimmed_states
+
 
 def compare_decoding_performance(*,
                                  data_info: dict,
                                  model_info: dict,
                                  verbose: bool = True):
     """
-    Fits both DP-GMM and HMM models on a time-delay embedded signal and compares their decoding performance.
+    Fits DP-GMM, HMM, and/or thresholding models and compares their decoding performance.
+
+    Notes
+    -----
+    DP-GMM and HMM can use different numbers of time-delay embeddings.
+
+    Thresholding uses the raw signal directly because it does not use TDE.
     """
 
+    # ---------------------------------------------------------------------
     # Unpack data
+    # ---------------------------------------------------------------------
     signal = data_info["signal"]
     true_states = data_info["true_states"]
     fs = data_info["fs"]
 
+    # ---------------------------------------------------------------------
     # Unpack model info
+    # ---------------------------------------------------------------------
     seed = model_info["seed"]
 
     use_dpgmm = model_info["use_dpgmm"]
     use_hmm = model_info["use_hmm"]
+    use_thresholding = model_info["use_thresholding"]
 
 
-    num_emb = model_info["num_emb"]
+    # If only model_info["num_emb"] exists, both DP-GMM and HMM use it.
+    # If method-specific values exist, they override it.
+    num_emb_default = model_info["num_emb"]
+    num_emb_dpgmm = model_info.get("num_emb_dpgmm", num_emb_default)
+    num_emb_hmm = model_info.get("num_emb_hmm", num_emb_default)
+
     num_states = model_info["num_states"]
     truncate_weights = model_info["truncate_weights"]
 
     use_model_tqdm = model_info["use_model_tqdm"]
 
-    use_thresholding = model_info["use_thresholding"]
     filter_freq = model_info["filter_freq"]
     min_samples = model_info["min_samples"]
     imputing_spurious_states = model_info["imputing_spurious_states"]
@@ -381,44 +428,46 @@ def compare_decoding_performance(*,
     debug_mode = model_info["debug_mode"]
     n_jobs = model_info["n_jobs"]
 
-
-    # Time-delay embedding
-    tde_signal = compute_tde(signal, num_emb, verbose=0)
-    trimmed_signal = tde_signal[:, num_emb // 2]  # lag0 = original signal
-    if true_states is not None:
-        trimmed_states = trim_data(true_states, num_emb, verbose=False)
-
-    elif true_states is None:
-        trimmed_states = None
-
     records = []
 
+    # =====================================================================
+    # DP-GMM
+    # =====================================================================
     if use_dpgmm:
-        # ---- DP-GMM ----
         if verbose:
             print("--- Running DP-GMM ---")
+
+        # DP-GMM uses its own TDE embedding
+        tde_signal, trimmed_signal, trimmed_states = prepare_tde_data(
+            signal=signal,
+            true_states=true_states,
+            num_emb=num_emb_dpgmm,
+        )
 
         t0 = time.perf_counter()
 
         if debug_mode:
-            dpgmm_result = fit_DPGMM(data=tde_signal,
-                      num_states=num_states,
-                      num_epochs= 1,
-                      num_models= 1,
-                      use_epoch_tqdm=False,
-                      use_model_tqdm=use_model_tqdm,
-                      main_seed=seed,
-                      n_jobs = n_jobs,
-                      verbose=False)
+            dpgmm_result = fit_DPGMM(
+                data=tde_signal,
+                num_states=num_states,
+                num_epochs=1,
+                num_models=1,
+                use_epoch_tqdm=False,
+                use_model_tqdm=use_model_tqdm,
+                main_seed=seed,
+                n_jobs=n_jobs,
+                verbose=False,
+            )
         else:
-            dpgmm_result = fit_DPGMM(data=tde_signal,
-                                     num_states=num_states,
-                                     use_epoch_tqdm=False,
-                                     n_jobs = n_jobs,
-                                     use_model_tqdm=use_model_tqdm,
-                                     main_seed=seed,
-                                     verbose=False)
-
+            dpgmm_result = fit_DPGMM(
+                data=tde_signal,
+                num_states=num_states,
+                use_epoch_tqdm=False,
+                n_jobs=n_jobs,
+                use_model_tqdm=use_model_tqdm,
+                main_seed=seed,
+                verbose=False,
+            )
 
         fit_time = time.perf_counter() - t0
 
@@ -444,11 +493,11 @@ def compare_decoding_performance(*,
             performance_info=return_performance_info(
                 method="DP-GMM",
                 signal=trimmed_signal,
-                tde_signal = tde_signal,
+                tde_signal=tde_signal,
                 fs=fs,
                 true_states=trimmed_states,
                 num_states=num_states,
-                num_emb = num_emb,
+                num_emb=num_emb_dpgmm,
                 est_states=est_states,
                 est_params={
                     "alpha": alpha,
@@ -459,11 +508,12 @@ def compare_decoding_performance(*,
                 loss=loss_best,
                 imputing_spurious_states=False,
                 min_samples=min_samples,
-                truncate_weights= truncate_weights,
-                compute_summary_stats = compute_summary_stats,
-                verbose = verbose,
+                truncate_weights=truncate_weights,
+                compute_summary_stats=compute_summary_stats,
+                verbose=verbose,
             ),
-            )
+        )
+
         records.append({"method": "DP-GMM", **dpgmm_record})
 
         if imputing_spurious_states:
@@ -482,7 +532,7 @@ def compare_decoding_performance(*,
                     fs=fs,
                     true_states=trimmed_states,
                     num_states=num_states,
-                    num_emb = num_emb,
+                    num_emb=num_emb_dpgmm,
                     est_states=est_states,
                     est_params={
                         "alpha": alpha,
@@ -492,43 +542,52 @@ def compare_decoding_performance(*,
                     },
                     loss=loss_best,
                     imputing_spurious_states=imputing_spurious_states,
-                    compute_summary_stats = compute_summary_stats,
-                    verbose = verbose,
+                    compute_summary_stats=compute_summary_stats,
+                    verbose=verbose,
                     min_samples=min_samples,
-                    truncate_weights = truncate_weights),
-                )
+                    truncate_weights=truncate_weights,
+                ),
+            )
+
             records.append({"method": "DP-GMM (Imputed)", **dpgmm_record})
 
-
-
-
-
-
+    # =====================================================================
+    # HMM
+    # =====================================================================
     if use_hmm:
-
-        # ---- HMM ----
         if verbose:
-            print(f"--- Running HMM ---")
+            print("--- Running HMM ---")
+
+        # HMM uses its own TDE embedding
+        tde_signal, trimmed_signal, trimmed_states = prepare_tde_data(
+            signal=signal,
+            true_states=true_states,
+            num_emb=num_emb_hmm,
+        )
 
         t0 = time.perf_counter()
 
         if debug_mode:
-            hmm_result = fit_HMM(data=tde_signal,
-                                 num_states=num_states,
-                                 num_models= 1,
-                                 num_epochs= 1,
-                                 seed=seed,
-                                 n_jobs = n_jobs,
-                                 use_model_tqdm=use_model_tqdm,
-                                 verbose=False)
-
+            hmm_result = fit_HMM(
+                data=tde_signal,
+                num_states=num_states,
+                num_models=1,
+                num_epochs=1,
+                seed=seed,
+                n_jobs=n_jobs,
+                use_model_tqdm=use_model_tqdm,
+                verbose=False,
+            )
         else:
-            hmm_result = fit_HMM(data=tde_signal,
-                                 num_states=num_states,
-                                 seed = seed,
-                                 n_jobs = n_jobs,
-                                 use_model_tqdm=use_model_tqdm,
-                                 verbose=False)
+            hmm_result = fit_HMM(
+                data=tde_signal,
+                num_states=num_states,
+                seed=seed,
+                n_jobs=n_jobs,
+                use_model_tqdm=use_model_tqdm,
+                verbose=False,
+            )
+
         fit_time = time.perf_counter() - t0
 
         est_params, best_model_id, loss_best, loss_all = hmm_result.values()
@@ -546,22 +605,23 @@ def compare_decoding_performance(*,
                 "total_time": fit_time + pred_time,
             },
             performance_info=return_performance_info(
-                method=f"HMM",
+                method="HMM",
                 signal=trimmed_signal,
                 fs=fs,
                 true_states=trimmed_states,
                 num_states=num_states,
-                num_emb = num_emb,
+                num_emb=num_emb_hmm,
                 est_states=est_states,
                 est_params=est_params,
                 loss=loss_best,
                 imputing_spurious_states=False,
-                compute_summary_stats = compute_summary_stats,
-                verbose = verbose,
+                compute_summary_stats=compute_summary_stats,
+                verbose=verbose,
                 min_samples=min_samples,
             ),
         )
-        records.append({"method": f"HMM", **hmm_record})
+
+        records.append({"method": "HMM", **hmm_record})
 
         if imputing_spurious_states:
             hmm_record = _record(
@@ -573,63 +633,74 @@ def compare_decoding_performance(*,
                     "total_time": fit_time + pred_time,
                 },
                 performance_info=return_performance_info(
-                    method=f"HMM",
+                    method="HMM",
                     signal=trimmed_signal,
                     fs=fs,
                     true_states=trimmed_states,
                     num_states=num_states,
-                    num_emb=num_emb,
+                    num_emb=num_emb_hmm,
                     est_states=est_states,
                     est_params=est_params,
                     loss=loss_best,
                     imputing_spurious_states=imputing_spurious_states,
-                    compute_summary_stats = compute_summary_stats,
-                    verbose = verbose,
+                    compute_summary_stats=compute_summary_stats,
+                    verbose=verbose,
                     min_samples=min_samples,
                 ),
             )
-            records.append({"method": f"HMM (Imputed)", **hmm_record})
 
+            records.append({"method": "HMM (Imputed)", **hmm_record})
 
-
-
-
-
-
+    # =====================================================================
+    # Thresholding
+    # =====================================================================
     if use_thresholding:
-        # Threshold method
         if verbose:
             print("--- Running Thresholding ---")
 
-        filter_freq = np.array(filter_freq)
+
+        # Thresholding does NOT use TDE.
+        # Therefore it should use the raw signal and raw states.
+        threshold_signal = np.asarray(signal)
+
+        if true_states is None:
+            threshold_states = None
+        else:
+            threshold_states = np.asarray(true_states)
+
+        filter_freq = np.atleast_1d(np.asarray(filter_freq))
+
         enveloped_signal_list = []
-        threshold_params_array = np.zeros((np.array(filter_freq).size, 2))
+        threshold_params_array = np.zeros((filter_freq.size, 2))
         best_corr_list = []
 
-
-
         t0 = time.perf_counter()
-        if filter_freq.size == 1:
-            enveloped_signal, threshold_params, best_corr = optimize_threshold_params(trimmed_signal, filter_freq = filter_freq, fs = fs)
+
+        for i, freq in enumerate(filter_freq):
+            enveloped_signal, threshold_params, best_corr = optimize_threshold_params(
+                threshold_signal,
+                filter_freq=freq,
+                fs=fs,
+            )
+
             enveloped_signal_list.append(enveloped_signal)
-            threshold_params_array[0,:] = np.array(threshold_params)
+            threshold_params_array[i, :] = np.asarray(threshold_params)
             best_corr_list.append(best_corr)
-            fit_time = time.perf_counter() - t0
 
-        else:
-            for i in range(filter_freq.size):
-                enveloped_signal, threshold_params, best_corr = optimize_threshold_params(trimmed_signal, filter_freq = filter_freq[i], fs = fs)
-                enveloped_signal_list.append(enveloped_signal)
-                threshold_params_array[i,:] = np.array(threshold_params)
-                best_corr_list.append(best_corr)
-            fit_time = time.perf_counter() - t0
-
+        fit_time = time.perf_counter() - t0
 
         est_states_list = []
+
         t1 = time.perf_counter()
+
         for i in range(filter_freq.size):
-            est_states = thresholding_bursts(enveloped_signal_list[i], detect_k = threshold_params_array[i,0], width_k = threshold_params_array[i, 1])
-            est_states_list.append(est_states)
+            est_states_i = thresholding_bursts(
+                enveloped_signal_list[i],
+                detect_k=threshold_params_array[i, 0],
+                width_k=threshold_params_array[i, 1],
+            )
+
+            est_states_list.append(est_states_i)
 
         pred_time = time.perf_counter() - t1
 
@@ -637,27 +708,32 @@ def compare_decoding_performance(*,
             est_states = est_states_list[0]
 
         else:
-            burst_states = np.array(est_states_list)
-            envelopes = np.array(enveloped_signal_list)
+            burst_states = np.asarray(est_states_list)
+            envelopes = np.asarray(enveloped_signal_list)
 
-            # mask envelopes by detected bursts (0 where no burst)
+            # Mask envelope by detected bursts.
+            # Non-burst samples get score 0.
             burst_mask = (burst_states != 0).astype(float)
-            burst_scores = envelopes * burst_mask  # (n_freqs, T)
+            burst_scores = envelopes * burst_mask
 
-            # noise row: 1 where no band has a burst, else 0
-            noise_row = (burst_states == 0).all(axis=0).astype(float)[np.newaxis, :]  # (1, T)
+            # Noise row:
+            # state 0 if no frequency band has a detected burst.
+            noise_row = (burst_states == 0).all(axis=0).astype(float)[np.newaxis, :]
 
-            # stack noise (row 0) + burst bands (rows 1..n_freqs)
-            scores = np.concatenate((noise_row, burst_scores), axis=0)  # (1 + n_freqs, T)
+            # Rows:
+            # 0 = noise
+            # 1..n_freqs = burst frequency bands
+            scores = np.concatenate((noise_row, burst_scores), axis=0)
 
-            # final state: 0 = noise, 1..n_freqs = band index with highest envelope
             est_states = np.argmax(scores, axis=0)
 
-
-        est_params = {"enveloped_signal": np.array(enveloped_signal_list),
-                      "detect_k": threshold_params_array[:,0],
-                      "width_k": threshold_params_array[:, 1]}
-
+        est_params = {
+            "enveloped_signal": np.asarray(enveloped_signal_list),
+            "detect_k": threshold_params_array[:, 0],
+            "width_k": threshold_params_array[:, 1],
+            "best_corr": np.asarray(best_corr_list),
+            "filter_freq": filter_freq,
+        }
 
         thresholding_record = _record(
             data_info=data_info,
@@ -668,19 +744,20 @@ def compare_decoding_performance(*,
             },
             performance_info=return_performance_info(
                 method="Thresholding",
-                signal=trimmed_signal,
+                signal=threshold_signal,
                 fs=fs,
-                true_states=trimmed_states,
+                true_states=threshold_states,
                 num_states=num_states,
-                num_emb = num_emb,
+                num_emb=1,
                 est_states=est_states,
                 est_params=est_params,
                 loss=threshold_params_array,
                 imputing_spurious_states=False,
-                compute_summary_stats = compute_summary_stats,
+                compute_summary_stats=compute_summary_stats,
                 min_samples=min_samples,
             ),
         )
+
         records.append({"method": "Thresholding", **thresholding_record})
 
         if imputing_spurious_states:
@@ -693,21 +770,20 @@ def compare_decoding_performance(*,
                 },
                 performance_info=return_performance_info(
                     method="Thresholding",
-                    signal=trimmed_signal,
+                    signal=threshold_signal,
                     fs=fs,
-                    true_states=trimmed_states,
+                    true_states=threshold_states,
                     num_states=num_states,
-                    num_emb=num_emb,
+                    num_emb=1,
                     est_states=est_states,
                     est_params=est_params,
                     loss=threshold_params_array,
-                    imputing_spurious_states = imputing_spurious_states,
-                    compute_summary_stats = compute_summary_stats,
+                    imputing_spurious_states=imputing_spurious_states,
+                    compute_summary_stats=compute_summary_stats,
                     min_samples=min_samples,
                 ),
             )
+
             records.append({"method": "Thresholding (Imputed)", **thresholding_record})
-
-
 
     return records

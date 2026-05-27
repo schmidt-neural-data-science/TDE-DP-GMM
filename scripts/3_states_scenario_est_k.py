@@ -42,8 +42,21 @@ snr_range = np.arange(-10, 11, 2)
 def _run_one(sample_id, freq_id, snr_id):
     freq = freqs_dist_range[freq_id]
     freq_for_emb = float(np.mean(freq))
-    num_emb = choose_embedding_dim(freq_for_emb, fs, min_cycles=2.5)
 
+    # Different embeddings for each model
+    num_emb_dpgmm = choose_embedding_dim(
+        freq_for_emb,
+        fs,
+        min_cycles=2.5,
+        ensure_odd=True,
+    )
+
+    num_emb_hmm = choose_embedding_dim(
+        freq_for_emb,
+        fs,
+        min_cycles=3.0,
+        ensure_odd=True,
+    )
 
     snr = snr_range[snr_id]
     sig = signal_sample[sample_id, freq_id, snr_id]
@@ -54,8 +67,8 @@ def _run_one(sample_id, freq_id, snr_id):
     num_states = int(np.ceil(np.log(len(sig))))  # E[K] = a ln n
 
 
-    # use different seed for each condition
-    seed = int(seed_base + (sample_id * 10000 + freq_id * 100 + snr_id) * 997)
+    # use different seed for each sample
+    seed = int(seed_base + sample_id)
 
     data_info = {
         "signal": sig,
@@ -70,7 +83,12 @@ def _run_one(sample_id, freq_id, snr_id):
         "use_dpgmm": True,
         "use_hmm": False,
         "num_states": num_states,
-        "num_emb": num_emb,
+
+        "num_emb": num_emb_dpgmm, #this is just fall back
+        # Method-specific embeddings
+        "num_emb_dpgmm": num_emb_dpgmm,
+        "num_emb_hmm": num_emb_hmm,
+
         "use_model_tqdm": False,
         "use_thresholding": False,
         "filter_freq": np.array(freq),

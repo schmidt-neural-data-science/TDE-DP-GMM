@@ -228,7 +228,7 @@ def fit_HMM(
     scaled_model_eval = poutine.scale(hmm_model, scale=scale_factor)
     scaled_guide_eval = poutine.scale(guide_eval, scale=scale_factor)
 
-    optimizer_eval = pyro.optim.Adam({"lr": learning_rate})
+    optimizer_eval = pyro.optim.ClippedAdam({"lr": learning_rate, "betas": (0.95, 0.999)})
     elbo_eval = Trace_ELBO(num_particles=100)  # use 100 MC particle for evaluation
     svi_eval = SVI(scaled_model_eval, scaled_guide_eval, optimizer_eval, loss=elbo_eval)
     base_rng_state = get_rng_state()

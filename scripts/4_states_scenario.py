@@ -23,7 +23,7 @@ seed = 2026
 rng = np.random.default_rng(seed)
 
 # ---parameters for burst simulator---
-n_seconds = 60*1  # Total duration in seconds.
+n_seconds = 60*3  # Total duration in seconds.
 fs = 250
 time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
 
@@ -33,19 +33,19 @@ freq = np.array([20, 30, 40])  #ground truth = 4 states (including noise state)
 
 
 
-burst_amp_sigma = 0.1
+burst_amp_sigma = 0.15
 tukey_alpha=0.25
-state_transition = 'return_to_baseline'
+state_transition = 'uniform_except_self'
 
 
 beta = 1 #pink noise
 
 
 # For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 12]
+burst_cycles = [3, 7]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 2.]
+noise_duration = [0.5, 3.]
 
 
 

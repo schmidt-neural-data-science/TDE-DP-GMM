@@ -7,7 +7,7 @@ import pickle
 import os
 
 
-n_jobs = os.cpu_count()
+n_jobs = 2
 print("n_jobs", n_jobs)
 
 sim_cond = "4states"
@@ -41,12 +41,15 @@ burst_cycles = [3, 7] #[3, 7]
 noise_duration = [0.5, 3] #[0.5, 3.]
 
 
-burst_amp_sigma = 0.1
+burst_amp_sigma = 0.15
+tukey_alpha=0.25
+state_transition = 'uniform_except_self'
+
 beta = 1 #pink noise
 
 
 ## simulate a bursty signal
-signal_dict = simulate_bursty_signal(time_vec, fs, freq, burst_cycles, noise_duration, burst_type = "sine", use_filter= True, snr_db= snr_db, burst_amp_sigma = burst_amp_sigma, beta = beta, rng = rng)
+signal_dict = simulate_bursty_signal(time_vec, fs, freq, burst_cycles, noise_duration, state_transition = state_transition, burst_type = "sine", use_filter= True, snr_db= snr_db, burst_amp_sigma = burst_amp_sigma, beta = beta, tukey_alpha=tukey_alpha, rng = rng)
 
 signal, states, bursts, noise,  = signal_dict.values()
 

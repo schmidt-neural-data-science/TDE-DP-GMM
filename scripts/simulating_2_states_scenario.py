@@ -18,28 +18,27 @@ os.makedirs(data_dir, exist_ok = True)
 #global settings (used across all the simulations)
 
 # Set seeds for reproducibility.
-seed = 2026
-rng = np.random.default_rng(seed)
+seed_base = 2026
 
 # Simulation parameters.
 n_samples = 5
 
-n_seconds = 60*1   # Total duration in seconds.
+n_seconds = 60*3   # Total duration in seconds.
 
 burst_amp_sigma = 0.1
 tukey_alpha=0.25
 
-state_transition = "return_to_baseline" #'return_to_baseline'
+state_transition = "uniform_except_self" #'return_to_baseline'
 #uniform, uniform_except_self,
 
 beta = 1 #pink noise
 
 
 # For burst segments, specify dur. ation as the number of cycles.
-burst_cycles = [3, 12]  #3, 12
+burst_cycles = [3, 7]  #3, 12
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 2] #0.5, 2
+noise_duration = [0.1, 3] #0.5, 2
 
 
 
@@ -65,8 +64,17 @@ noise_sample  = np.empty_like(states_sample)
 signal_sample = np.empty_like(states_sample)
 
 for sample_id in range(n_samples):
+
+    # One seed per sample
+    sample_seed = seed_base + sample_id
+
+
     for cond1_id, freq in enumerate(freq_range):
         for cond2_id, fs in enumerate(fs_range):
+
+            # Reset RNG with the same sample seed for every condition
+            # inside this sample.
+            rng = np.random.default_rng(sample_seed)
 
             time_vec = np.linspace(0, n_seconds, int(fs * n_seconds), endpoint=False)
 

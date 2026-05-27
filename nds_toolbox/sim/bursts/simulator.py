@@ -79,13 +79,13 @@ def _simulate_bursts(
     burst_cycles,
     noise_duration,
     burst_type,
-    state_transition="uniform",
+    state_transition="return_to_baseline",
     transition_matrix=None,
     burst_amp_sigma=0.1,
     chi=0.15,
     use_tukey=True,
     tukey_alpha=0.25,
-    power_law_scale=True,
+    power_law_scale=False,
     rng=None,
 ):
     """
@@ -363,15 +363,16 @@ def simulate_bursty_signal(
         freq,
         burst_cycles_param,
         noise_duration_param,
-        state_transition = 'uniform',
+        state_transition = 'uniform_except_self',
         transition_matrix = None,
         burst_type="sine",
         use_filter = True,
         highpass_f = 0.5,
-        snr_db=0,
+        snr_db=2,
         burst_amp_sigma=0.1,
         beta=1,
         chi=0.15,
+        power_law_scale=False,
         use_tukey=True,
         tukey_alpha=0.25,
         rng=None):
@@ -387,7 +388,7 @@ def simulate_bursty_signal(
     bursts, states = _simulate_bursts(
         time_vec, fs, freq,
         burst_cycles_param, noise_duration_param,state_transition = state_transition, transition_matrix=transition_matrix,
-        burst_type=burst_type, burst_amp_sigma=burst_amp_sigma, chi=chi,
+        burst_type=burst_type, burst_amp_sigma=burst_amp_sigma, chi=chi,power_law_scale=power_law_scale,
         use_tukey=use_tukey, tukey_alpha=tukey_alpha, rng=rng
     )
 

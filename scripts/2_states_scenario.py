@@ -74,8 +74,8 @@ def _run_one(sample_id, freq_id, fs_id, emb_id):
 
     st = states_sample[sample_id, freq_id, fs_id].astype(int)
 
-    # use different seed for each condition
-    seed = int(seed_base + (sample_id * 10000 + freq_id * 100 + fs_id*10 + emb_id) * 997)
+    # use different seed for each sample
+    seed = int(seed_base + sample_id)
 
     data_info = {
         "signal": sig,
