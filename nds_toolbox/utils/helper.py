@@ -177,7 +177,7 @@ def _order_for_params(order, K_params: int):
 
 def return_performance_info(*, method: str, signal, fs, true_states, est_states, min_samples,
                             num_states: int, num_emb: int, est_params: dict, loss: float,
-                            tde_signal=None, imputing_spurious_states=None, truncate_weights=None,
+                            tde_signal=None, imputing_spurious_states=None, truncate_weights=None, remove_edge_states = False,
                             compute_summary_stats=False, verbose=False):
     """
     Computes performance metrics and state summary after reordering estimated states to best match ground truth.
@@ -205,7 +205,7 @@ def return_performance_info(*, method: str, signal, fs, true_states, est_states,
 
         if truncate_weights:
             trunc_means, trunc_covs, trunc_weights, trunc_info = truncate(
-                means, covs, weights, verbose=True, return_info=True
+                means, covs, weights, remove_edge_states = remove_edge_states, verbose=True, return_info=True
             )
 
             num_active_states = int(len(trunc_weights))  # after truncation
@@ -415,6 +415,8 @@ def compare_decoding_performance(*,
     num_emb_dpgmm = model_info.get("num_emb_dpgmm", num_emb_default)
     num_emb_hmm = model_info.get("num_emb_hmm", num_emb_default)
 
+    remove_edge_states = model_info.get("remove_edge_states", False)
+
     num_states = model_info["num_states"]
     truncate_weights = model_info["truncate_weights"]
 
@@ -516,6 +518,42 @@ def compare_decoding_performance(*,
 
         records.append({"method": "DP-GMM", **dpgmm_record})
 
+        if remove_edge_states:
+            dpgmm_record = _record(
+                data_info=data_info,
+                model_result=dpgmm_result,
+                time_info={
+                    "fit_t": fit_time,
+                    "pred_t": pred_time,
+                    "total_time": fit_time + pred_time,
+                },
+                performance_info=return_performance_info(
+                    method="DP-GMM",
+                    signal=trimmed_signal,
+                    tde_signal=tde_signal,
+                    fs=fs,
+                    true_states=trimmed_states,
+                    num_states=num_states,
+                    num_emb=num_emb_dpgmm,
+                    est_states=est_states,
+                    est_params={
+                        "alpha": alpha,
+                        "weights": weights,
+                        "means": means,
+                        "covs": covs,
+                    },
+                    loss=loss_best,
+                    imputing_spurious_states=imputing_spurious_states,
+                    remove_edge_states=remove_edge_states,
+                    compute_summary_stats=compute_summary_stats,
+                    verbose=verbose,
+                    min_samples=min_samples,
+                    truncate_weights=truncate_weights,
+                ),
+            )
+
+            records.append({"method": "DP-GMM (Edge-removed)", **dpgmm_record})
+
         if imputing_spurious_states:
             dpgmm_record = _record(
                 data_info=data_info,
@@ -550,6 +588,42 @@ def compare_decoding_performance(*,
             )
 
             records.append({"method": "DP-GMM (Imputed)", **dpgmm_record})
+
+            if remove_edge_states:
+                dpgmm_record = _record(
+                    data_info=data_info,
+                    model_result=dpgmm_result,
+                    time_info={
+                        "fit_t": fit_time,
+                        "pred_t": pred_time,
+                        "total_time": fit_time + pred_time,
+                    },
+                    performance_info=return_performance_info(
+                        method="DP-GMM",
+                        signal=trimmed_signal,
+                        tde_signal=tde_signal,
+                        fs=fs,
+                        true_states=trimmed_states,
+                        num_states=num_states,
+                        num_emb=num_emb_dpgmm,
+                        est_states=est_states,
+                        est_params={
+                            "alpha": alpha,
+                            "weights": weights,
+                            "means": means,
+                            "covs": covs,
+                        },
+                        loss=loss_best,
+                        imputing_spurious_states=imputing_spurious_states,
+                        remove_edge_states=remove_edge_states,
+                        compute_summary_stats=compute_summary_stats,
+                        verbose=verbose,
+                        min_samples=min_samples,
+                        truncate_weights=truncate_weights,
+                    ),
+                )
+
+                records.append({"method": "DP-GMM (Imputed & Edge-removed)", **dpgmm_record})
 
     # =====================================================================
     # HMM

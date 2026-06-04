@@ -33,7 +33,7 @@ freq = np.array([20, 30, 40])  #ground truth = 4 states (including noise state)
 
 
 
-burst_amp_sigma = 0.15
+burst_amp_sigma = 0.1
 tukey_alpha=0.25
 state_transition = 'uniform_except_self'
 
@@ -45,7 +45,7 @@ beta = 1 #pink noise
 burst_cycles = [3, 7]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 3.]
+noise_duration = [0.1, 3.]
 
 
 
@@ -54,15 +54,6 @@ noise_duration = [0.5, 3.]
 signal_dict = simulate_bursty_signal(time_vec, fs, freq, burst_cycles, noise_duration, state_transition = state_transition, burst_type = "sine", use_filter= True, snr_db= snr_db, burst_amp_sigma = burst_amp_sigma, beta = beta, tukey_alpha=tukey_alpha, rng = rng)
 
 signal, states, bursts, noise,  = signal_dict.values()
-
-
-signal = (signal - np.mean(signal))/ np.std(signal) #standarize
-num_emb = choose_embedding_dim(np.mean(freq), fs, min_cycles = 2.5, ensure_odd = True)
-tde_signal = compute_tde(signal, num_emb)
-
-trimmed_signal = trim_data(signal, num_emb, verbose = False)
-trimmed_states = trim_data(states, num_emb, verbose = False)
-trimmed_time_vec = np.linspace(0, len(trimmed_states)/fs, len(trimmed_states))
 
 
 ### save the data
@@ -80,11 +71,24 @@ print(f"Data saved as {data_file}")
 ###
 
 
+signal = (signal - np.mean(signal))/ np.std(signal) #standarize
 
+# Different embeddings for each model
+num_emb_dpgmm = choose_embedding_dim(
+    np.mean(freq),
+    fs,
+    min_cycles=2.5,
+    ensure_odd=True,
+)
 
+num_emb_hmm = choose_embedding_dim(
+    np.mean(freq),
+    fs,
+    min_cycles=3.0,
+    ensure_odd=True,
+)
 
-
-num_states = int(np.ceil(np.log(len(trimmed_signal)))) # E[K] = a ln n
+num_states = int(np.ceil(np.log(len(signal)))) # E[K] = a ln n
 # this sets K above the expected occupied clusters
 print(f"Number of states: {num_states}")
 
@@ -104,7 +108,12 @@ model_info = {
     "use_dpgmm": True,
     "use_hmm": True,
     "num_states": num_states,
-    "num_emb": num_emb,
+
+    "num_emb": num_emb_dpgmm,  # this is just fall back
+    # Method-specific embeddings
+    "num_emb_dpgmm": num_emb_dpgmm,
+    "num_emb_hmm": num_emb_hmm,
+
     "use_model_tqdm": True,
     "use_thresholding": False,
     "filter_freq": None,

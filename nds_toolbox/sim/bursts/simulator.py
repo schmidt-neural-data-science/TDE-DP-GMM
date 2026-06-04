@@ -205,7 +205,7 @@ def _simulate_bursts(
             freq_burst = freqs_array[0] if use_scalar_freq else freqs_array[current_state - 1]
 
             if isinstance(burst_cycles, (list, tuple, np.ndarray)) and len(burst_cycles) == 2:
-                num_cycles = rng.integers(burst_cycles[0], burst_cycles[1] + 1)
+                num_cycles = int(rng.integers(burst_cycles[0], burst_cycles[1] + 1))
             elif np.isscalar(burst_cycles):
                 num_cycles = int(burst_cycles)
             else:
@@ -214,27 +214,31 @@ def _simulate_bursts(
             if num_cycles <= 0:
                 raise ValueError("`burst_cycles` must be positive.")
 
-            samples_per_cycle = int(round(fs / freq_burst))
-            if samples_per_cycle <= 0:
-                raise ValueError("Invalid samples_per_cycle. Check `fs` and `f`.")
+            total_samples = int(round(num_cycles * fs / freq_burst))
+            if total_samples <= 0:
+                raise ValueError("Invalid total_samples. Check `fs`, `f`, and `burst_cycles`.")
 
-            total_samples = samples_per_cycle * num_cycles
             aligned_time = np.arange(total_samples) / fs
+
+
+            if burst_type == "sine":
+                carrier = np.sin(2 * np.pi * freq_burst * aligned_time)
+            elif burst_type == "sawtooth":
+                carrier = sawtooth(2 * np.pi * freq_burst * aligned_time, width=0.5)
+            else:
+                raise ValueError("Unsupported `burst_type`. Choose 'sine' or 'sawtooth'.")
+
+            if use_tukey:
+                envelope = tukey(total_samples, alpha=tukey_alpha)
+            else:
+                envelope = np.ones(total_samples)
 
             burst_amplitude = np.abs(rng.normal(loc=1.0, scale=burst_amp_sigma))
 
             if (not use_scalar_freq) and power_law_scale:
                 burst_amplitude *= 1.0 / (freq_burst ** chi)
 
-            if burst_type == "sine":
-                burst_signal = burst_amplitude * np.sin(2 * np.pi * freq_burst * aligned_time)
-            elif burst_type == "sawtooth":
-                burst_signal = burst_amplitude * sawtooth(2 * np.pi * freq_burst * aligned_time, width=1)
-            else:
-                raise ValueError("Unsupported `burst_type`. Choose 'sine' or 'sawtooth'.")
-
-            if use_tukey:
-                burst_signal *= tukey(total_samples, alpha=tukey_alpha)
+            burst_signal = burst_amplitude * carrier * envelope
 
             end_idx = min(start_idx + total_samples, len(time_vec))
             burst_signal = burst_signal[: end_idx - start_idx]
@@ -338,10 +342,10 @@ def _add_noise(bursts, states, noise, snr_db, use_filter = True, fs = None, high
         mask = states == s
 
         if s == 0:
-            burst_power = np.var(bursts_copy[states != 0])
+            burst_power = np.mean(bursts_copy[states != 0] **2)
 
         else:
-            burst_power = np.var(bursts_copy[mask])
+            burst_power = np.mean(bursts_copy[mask]**2)
 
 
         # desired noise power for that SNR
