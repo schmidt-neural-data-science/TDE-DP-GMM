@@ -38,7 +38,7 @@ beta = 1 #pink noise
 burst_cycles = [3, 7]  #3, 12
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.1, 3] #0.5, 2
+noise_duration = [0.2, 3] #0.5, 2
 
 
 
