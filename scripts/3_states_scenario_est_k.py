@@ -11,7 +11,7 @@ import itertools
 #%%
 
 total_cores = os.cpu_count() or 1
-inner_n_jobs = 5
+inner_n_jobs = total_cores
 
 
 print("total_cores:", total_cores)

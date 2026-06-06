@@ -28,17 +28,17 @@ n_seconds = 60*3   # Total duration in seconds.
 burst_amp_sigma = 0.1
 tukey_alpha=0.25
 
-state_transition = "uniform_except_self" #'return_to_baseline'
+state_transition = "return_to_baseline" #'return_to_baseline'
 #uniform, uniform_except_self,
 
 beta = 1 #pink noise
 
 
 # For burst segments, specify dur. ation as the number of cycles.
-burst_cycles = [3, 7]  #3, 12
+burst_cycles = [3, 10]  #3, 12
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.2, 3] #0.5, 2
+noise_duration = [0.2, 2] #0.5, 2
 
 
 

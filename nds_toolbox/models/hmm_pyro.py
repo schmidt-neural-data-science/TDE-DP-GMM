@@ -9,7 +9,7 @@ import numpy as np
 
 from pyro import poutine
 from pyro.infer import SVI, Trace_ELBO, TraceEnum_ELBO
-from pyro.infer.autoguide import AutoNormal
+from pyro.infer.autoguide import AutoNormal, AutoDelta
 from pyro.infer.autoguide.initialization import init_to_median, init_to_feasible
 
 
@@ -79,9 +79,9 @@ def _fit_HMM(x,
              num_states,
              *,
              learn_mean=False,
-             sequence_length=500,
-             batch_size=2 **4,
-             num_epochs=1000,
+             sequence_length=1000,
+             batch_size=2 **5,
+             num_epochs=3000,
              num_particles=1,
              learning_rate=5e-2,
              verbose=False,
@@ -99,10 +99,12 @@ def _fit_HMM(x,
     guide = AutoNormal(poutine.block(hmm_model, expose=exposed_params),
                        init_loc_fn=init_to_feasible)
 
+
     scale_factor = 1.0 / (x_tensor.shape[0] * x_tensor.shape[1])
     scaled_model = poutine.scale(hmm_model, scale=scale_factor)
     scaled_guide = poutine.scale(guide, scale=scale_factor)
 
+    #optimizer
     optimizer = pyro.optim.ClippedAdam({"lr": learning_rate, "betas": (0.95, 0.999)})
     elbo = Trace_ELBO(num_particles=num_particles)
     svi = SVI(scaled_model, scaled_guide, optimizer, loss=elbo)
@@ -131,10 +133,10 @@ def fit_HMM(
         learn_mean=False,
         sequence_length=1000, #500
         batch_size= 2 ** 4, #2 ** 4
-        num_models=10,
+        num_models=20,
         num_epochs=3000,
         num_particles=1,
-        learning_rate=1e-2,
+        learning_rate=5e-2,
         verbose=False,
         use_epoch_tqdm=False,
         use_model_tqdm=True,
