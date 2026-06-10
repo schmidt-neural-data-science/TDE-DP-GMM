@@ -7,7 +7,7 @@ import pickle
 import os
 
 
-n_jobs = 2
+n_jobs = 5
 print("n_jobs", n_jobs)
 
 sim_cond = "4states"
@@ -29,21 +29,21 @@ n_seconds = 60*3  # Total duration in seconds.
 fs = 250
 time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
 
-snr_db = 2
+snr_db = 0
 
 freq = np.array([20, 30, 40])  #ground truth = 4 states (including noise state)
 
 
 # For burst segments, specify duration as the number of cycles.
-burst_cycles = [3, 7] #[3, 7]
+burst_cycles = [3, 10]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.5, 3] #[0.5, 3.]
+noise_duration = [0.2, 2]
 
 
-burst_amp_sigma = 0.15
+burst_amp_sigma = 0.1
 tukey_alpha=0.25
-state_transition = 'uniform_except_self'
+state_transition = 'return_to_baseline'
 
 beta = 1 #pink noise
 
@@ -55,7 +55,9 @@ signal, states, bursts, noise,  = signal_dict.values()
 
 
 signal = (signal - np.mean(signal))/ np.std(signal) #standarize
-num_emb = choose_embedding_dim(np.mean(freq), fs, min_cycles = 2.5, ensure_odd = True)
+
+#embeddings for HMM
+num_emb = choose_embedding_dim(np.mean(freq), fs, min_cycles = 3, ensure_odd = True)
 tde_signal = compute_tde(signal, num_emb)
 
 trimmed_signal = trim_data(signal, num_emb, verbose = False)

@@ -27,7 +27,7 @@ n_seconds = 60*3  # Total duration in seconds.
 fs = 250
 time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
 
-snr_db = 2
+snr_db = 0
 
 freq = np.array([20, 30, 40])  #ground truth = 4 states (including noise state)
 
@@ -118,6 +118,7 @@ model_info = {
     "use_thresholding": False,
     "filter_freq": None,
     "imputing_spurious_states":True,
+    "remove_edge_states": True,
     "compute_summary_stats": True,
     "min_samples": np.round((2/np.max(freq))*fs).astype(int),
     "truncate_weights": True,

@@ -44,7 +44,7 @@ signal = np.concatenate(data_all)
 signal = (signal - np.mean(signal)) / np.std(signal) #standarize the signal
 signal = signal[:, 0]
 
-num_emb = choose_embedding_dim(np.mean(f[peaks]), fs, min_cycles = 2.5, ensure_odd = True)
+num_emb = choose_embedding_dim(np.mean(f[peaks]), fs, min_cycles = 3, ensure_odd = True)
 
 print("num_embeddings", num_emb) #15 emb
 

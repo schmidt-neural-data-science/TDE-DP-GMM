@@ -1,13 +1,13 @@
 
+import itertools
 import os
-import numpy as np
 import pickle
+
+import numpy as np
+
 from nds_toolbox.preprocessing.features import choose_embedding_dim
 from nds_toolbox.utils.helper import compare_decoding_performance
 
-
-from joblib import Parallel, delayed
-import itertools
 #%%
 
 total_cores = os.cpu_count() or 1
