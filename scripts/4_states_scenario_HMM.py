@@ -7,7 +7,7 @@ import pickle
 import os
 
 
-n_jobs = 5
+n_jobs = 2
 print("n_jobs", n_jobs)
 
 sim_cond = "4states"
