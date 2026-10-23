@@ -73,12 +73,12 @@ def make_transition_matrix(num_states, state_transition, trans_mat=None):
 
     return trans_mat
 
+
 import numpy as np
 
 from scipy.signal import sawtooth
 from scipy.signal.windows import tukey
 from scipy.ndimage import gaussian_filter1d
-
 from neurodsp.sim import sim_oscillation
 
 
@@ -99,271 +99,79 @@ def _simulate_bursts(
     tukey_alpha=0.25,
     rise_ratio=0.3,
     rise_ratio_sampling="uniform",
-    sawtooth_width=0.7,
-    sawtooth_smooth_fraction=0.06,
-    sawtooth_width_sampling="uniform",
     power_law_scale=False,
     rng=None,
+    sawtooth_smooth_fraction=0.0,
 ):
     """
-    Generate a signal containing transient oscillatory bursts separated by
-    baseline segments.
-
-    State 0 represents the baseline (noise) state, while states 1 through K
-    represent oscillatory burst states. The baseline segments are initialized
-    to zero; background noise must be added separately.
+    Generate oscillatory bursts interspersed with zero-valued baseline.
 
     Parameters
     ----------
     time_vec : array-like
-        Time vector defining the number of samples in the simulation.
-        Sampling is assumed to be uniform at the specified sampling frequency.
-
+        Determines output length. Assumed uniformly sampled at `fs`.
     fs : float
         Sampling frequency in Hz.
-
     f : float or array-like
-        Oscillation frequencies in Hz.
-
-        - If scalar, generate a single burst state at the specified frequency.
-        - If array-like, each frequency defines a distinct burst state.
-
-    burst_cycles : int or tuple of int
-        Number of oscillation cycles per burst.
-
-        - If scalar, use a fixed number of cycles.
-        - If a length-2 sequence, sample an integer uniformly between
-          the specified minimum and maximum (inclusive).
-
-    noise_duration : float or tuple of float
-        Duration of baseline segments in seconds.
-
-        - If scalar, use a fixed duration.
-        - If a length-2 sequence, sample uniformly between the
-          specified minimum and maximum.
-
-    burst_type : {"sine", "asine", "sawtooth"}, default="sine"
-        Waveform used to generate oscillatory bursts.
-
-        - "sine":
-          Standard sinusoidal oscillation.
-
-        - "asine":
-          Asymmetric sinusoidal oscillation with controllable
-          rise-decay symmetry. Generated using NeuroDSP's
-          `sim_oscillation` function with `cycle="asine"`.
-
-        - "sawtooth":
-          Sawtooth oscillation with adjustable asymmetry and
-          optional Gaussian smoothing.
-
-    state_transition : {"return_to_baseline", "uniform",
-                        "uniform_except_self", "custom"},
-                       default="return_to_baseline"
-        Transition rule governing the latent state sequence.
-
-        - "return_to_baseline":
-          State 0 transitions uniformly to any burst state,
-          and all burst states transition back to state 0.
-
-        - "uniform":
-          Sample the next state uniformly from all states,
-          including the current state.
-
-        - "uniform_except_self":
-          Sample the next state uniformly from all states
-          except the current state.
-
-        - "custom":
-          Use the transition probabilities specified by
-          `transition_matrix`.
-
-    transition_matrix : array-like or None, default=None
-        Custom state transition probability matrix.
-
-        Must have shape (num_states, num_states), where each row contains
-        the probabilities of transitioning from the current state to
-        each possible next state.
-
-        Used only when state_transition="custom".
-
-    burst_amp_sampling : {"absolute_normal", "choice"},
-                         default="absolute_normal"
-        Method for sampling the amplitude multiplier of each burst.
-
-        - "absolute_normal":
-          Sample the absolute value of a normally distributed random
-          variable with mean 1 and standard deviation `burst_amp_sigma`.
-
-        - "choice":
-          Randomly select an amplitude multiplier from
-          `burst_amp_factors`.
-
-        One multiplier is sampled independently for each burst.
-
-    burst_amp_factors : array-like or None, default=None
-        Discrete amplitude multipliers used when
-        burst_amp_sampling="choice".
-
-        For example, [1, 2] produces two possible amplitude multipliers
-        with a relative amplitude ratio of 1:2.
-
-        These factors control relative rather than absolute amplitudes.
-        Final amplitudes may also depend on frequency-dependent scaling
-        and subsequent SNR normalization.
-
-        Ignored when burst_amp_sampling="absolute_normal".
-
-    burst_amp_sigma : float, default=0.1
-        Standard deviation of the normal distribution used to sample
-        burst amplitude multipliers when
-        burst_amp_sampling="absolute_normal".
-
-        The multiplier is sampled as abs(N(1, burst_amp_sigma**2)).
-        A single multiplier is sampled per burst, not per cycle.
-
-    chi : float, default=0.15
-        Exponent for optional frequency-dependent amplitude scaling.
-
-        When enabled, burst amplitude is multiplied by f**(-chi).
-
-    use_tukey : bool, default=True
-        Whether to apply a Tukey window to each burst.
-
-    tukey_alpha : float, default=0.25
-        Shape parameter of the Tukey window.
-
-    rise_ratio : float or array-like, default=0.3
-        Rise-decay symmetry of asymmetric sine oscillations.
-
-        Defined as the fraction of an oscillatory cycle spent rising
-        from trough to peak:
-
-            rdsym = rise_duration / (rise_duration + decay_duration)
-
-        - 0.5: Symmetric oscillation.
-        - < 0.5: Shorter rise and longer decay.
-        - > 0.5: Longer rise and shorter decay.
-
-        Values must be strictly between 0 and 1.
-
-        - If scalar, use a fixed rise-decay ratio for all bursts.
-        - If array-like, sample according to `rise_ratio_sampling`.
-
-        One ratio is sampled per burst and remains constant
-        across its oscillatory cycles.
-
-        Used only when burst_type="asine".
-
-    rise_ratio_sampling : {"uniform", "choice"}, default="uniform"
-        Sampling method for rise_ratio when a sequence is provided.
-
-        - "uniform":
-          Sample continuously between two specified bounds.
-
-        - "choice":
-          Randomly select from the specified values.
-
-        Ignored when rise_ratio is scalar.
-        Used only when burst_type="asine".
-
-    sawtooth_width : float or array-like, default=0.7
-        Controls the asymmetry of the sawtooth waveform.
-
-        - If scalar, use a fixed width for all bursts.
-        - If array-like, sample according to `sawtooth_width_sampling`.
-
-        Values must lie between 0 and 1 (inclusive).
-
-        - 0.0: Descending sawtooth wave.
-        - 0.5: Symmetric triangular wave.
-        - 1.0: Ascending sawtooth wave.
-
-        Used only when burst_type="sawtooth".
-
-    sawtooth_smooth_fraction : float, default=0.06
-        Controls Gaussian smoothing of the sawtooth waveform.
-
-        Specifies the Gaussian standard deviation as a fraction
-        of one oscillation cycle:
-
-            sigma = sawtooth_smooth_fraction * fs / f
-
-        Larger values produce smoother waveforms by attenuating
-        higher-frequency components. Set to 0 to disable smoothing.
-
-        Used only when burst_type="sawtooth".
-
-    sawtooth_width_sampling : {"uniform", "choice"}, default="uniform"
-        Sampling method for sawtooth_width when a sequence is provided.
-
-        - "uniform":
-          Sample continuously between two specified bounds.
-
-        - "choice":
-          Randomly select from the specified values.
-
-        Ignored when sawtooth_width is scalar.
-        Used only when burst_type="sawtooth".
-
-    power_law_scale : bool, default=False
-        Whether to apply frequency-dependent amplitude scaling
-        proportional to f**(-chi).
-
-        Scaling is applied only when multiple burst frequencies
-        are specified.
-
-    rng : np.random.Generator or None, default=None
-        Random number generator used for stochastic sampling.
-
-        If None, a new generator is created using np.random.default_rng().
+        Burst frequencies; one distinct state per frequency.
+    burst_cycles : int or (int, int)
+        Fixed cycle count or inclusive lower/upper bounds.
+    noise_duration : float or (float, float)
+        Baseline duration or uniform range in seconds.
+    burst_type : {"sine", "asine", "sawtooth"}
+        Type of oscillatory carrier.
+    state_transition : str
+        Transition scheme passed to `make_transition_matrix`.
+    transition_matrix : array-like or None
+        Optional custom transition probabilities.
+    burst_amp_sampling : {"absolute_normal", "choice"}
+        Amplitude multiplier sampling method.
+    burst_amp_factors : array-like or None
+        Amplitude choices if `burst_amp_sampling="choice"`.
+    burst_amp_sigma : float
+        Standard deviation for abs(N(1, burst_amp_sigma**2)).
+    chi : float
+        Power-law amplitude exponent.
+    use_tukey : bool
+        Whether to apply a Tukey burst envelope.
+    tukey_alpha : float
+        Tukey window shape parameter in [0, 1].
+    rise_ratio : float or array-like
+        Fraction of a cycle spent rising from trough to peak.
+        Shared by "asine" and "sawtooth"; ignored for "sine".
+        Values must lie strictly between 0 and 1.
+    rise_ratio_sampling : {"uniform", "choice"}
+        For multiple `rise_ratio` values: "uniform" requires
+        two ordered bounds, while "choice" accepts candidate values.
+        Sampled once per burst.
+    power_law_scale : bool
+        Apply f**(-chi) to burst amplitude when there are
+        multiple burst-frequency states.
+    rng : np.random.Generator or None
+        Random number generator.
+    sawtooth_smooth_fraction : float
+        Gaussian smoothing sigma as a fraction of cycle length;
+        0 disables smoothing. Only used for "sawtooth".
 
     Returns
     -------
     signal : ndarray, shape (T,)
-        Simulated signal containing oscillatory bursts and zero-valued
-        baseline segments.
-
+        Burst signal with zero-valued baseline segments.
     states : ndarray, shape (T,)
-        Integer-valued latent state sequence.
-
-        - State 0: Baseline (noise) state.
-        - States 1 through K: Oscillatory burst states.
+        Latent states: 0 for baseline, 1..K for bursts.
 
     Notes
     -----
-    Burst amplitudes are determined by sampled amplitude multipliers,
-    with optional frequency-dependent scaling.
 
-    If a common SNR normalization factor is subsequently applied to
-    the generated signal, relative burst amplitude differences
-    are preserved.
-
-    Asymmetric sine bursts are generated using NeuroDSP's
-    `sim_oscillation` function with `cycle="asine"`.
-
-    NeuroDSP constructs asymmetric sine waves by varying the relative
-    durations of their rising and decaying portions.
-
-    The resulting nonsinusoidal oscillations contain harmonics,
-    even though harmonics are not explicitly summed.
-
-    NeuroDSP discretizes individual cycles, so the realized
-    oscillation frequency can differ slightly from the requested
-    frequency when fs / f is not an integer.
+    NeuroDSP's "asine" uses discretized repeated cycles, so its
+    realized frequency may differ from `f` if `fs / f` is noninteger.
 
     References
     ----------
-    Cole, S., Donoghue, T., Gao, R., & Voytek, B. (2019).
-    NeuroDSP: A package for neural digital signal processing.
-    Journal of Open Source Software, 4(36), 1272.
+    Cole et al. (2019). NeuroDSP: A package for neural digital
+    signal processing. JOSS, 4(36), 1272.
     https://doi.org/10.21105/joss.01272
     """
-
-    # ============================================================
-    # Initialize random number generator
-    # ============================================================
-
     if rng is None:
         rng = np.random.default_rng()
 
@@ -374,62 +182,78 @@ def _simulate_bursts(
     if not np.isfinite(fs) or fs <= 0:
         raise ValueError("`fs` must be finite and positive.")
 
-    freqs_array = np.atleast_1d(
-        np.asarray(f, dtype=float)
-    )
-
+    freqs_array = np.atleast_1d(np.asarray(f, dtype=float))
     if (
         freqs_array.ndim != 1
         or freqs_array.size == 0
         or not np.all(np.isfinite(freqs_array))
         or np.any(freqs_array <= 0)
+        or np.any(freqs_array >= fs / 2)
     ):
-        raise ValueError(
-            "`f` must contain finite, positive frequencies."
-        )
+        raise ValueError("`f` must lie strictly between 0 and fs/2.")
 
     if burst_type not in ("sine", "asine", "sawtooth"):
-        raise ValueError(
-            "`burst_type` must be 'sine', 'asine', or 'sawtooth'."
-        )
-
+        raise ValueError("Invalid `burst_type`.")
     if burst_amp_sampling not in ("absolute_normal", "choice"):
-        raise ValueError(
-            "`burst_amp_sampling` must be "
-            "'absolute_normal' or 'choice'."
-        )
+        raise ValueError("Invalid `burst_amp_sampling`.")
+    if not np.isfinite(chi):
+        raise ValueError("`chi` must be finite.")
+    if not np.isfinite(tukey_alpha) or not 0 <= tukey_alpha <= 1:
+        raise ValueError("`tukey_alpha` must be in [0, 1].")
+
+    # Validate amplitude parameters.
 
     if burst_amp_sampling == "choice":
-
         if burst_amp_factors is None:
-            raise ValueError(
-                "`burst_amp_factors` must be provided "
-                "when burst_amp_sampling='choice'."
-            )
-
+            raise ValueError("`burst_amp_factors` is required for 'choice'.")
         burst_amp_factors = np.atleast_1d(
             np.asarray(burst_amp_factors, dtype=float)
         )
-
         if (
-            burst_amp_factors.size == 0
+            burst_amp_factors.ndim != 1
+            or burst_amp_factors.size == 0
             or not np.all(np.isfinite(burst_amp_factors))
             or np.any(burst_amp_factors <= 0)
         ):
-            raise ValueError(
-                "`burst_amp_factors` must contain finite, "
-                "positive values."
-            )
+            raise ValueError("`burst_amp_factors` must be positive and finite.")
+    elif not np.isfinite(burst_amp_sigma) or burst_amp_sigma < 0:
+        raise ValueError("`burst_amp_sigma` must be finite and nonnegative.")
 
-    elif burst_amp_sigma < 0 or not np.isfinite(burst_amp_sigma):
+    # Validate burst cycle counts.
+
+    cycle_values = np.atleast_1d(np.asarray(burst_cycles, dtype=float))
+    if (
+        cycle_values.ndim != 1
+        or cycle_values.size not in (1, 2)
+        or not np.all(np.isfinite(cycle_values))
+        or np.any(cycle_values <= 0)
+        or not np.all(cycle_values == np.floor(cycle_values))
+        or (cycle_values.size == 2 and cycle_values[0] > cycle_values[1])
+    ):
         raise ValueError(
-            "`burst_amp_sigma` must be finite and non-negative."
+            "`burst_cycles` must be a positive integer or ordered pair."
+        )
+    cycle_values = cycle_values.astype(int)
+
+    # Validate baseline durations.
+
+    noise_values = np.atleast_1d(np.asarray(noise_duration, dtype=float))
+    if (
+        noise_values.ndim != 1
+        or noise_values.size not in (1, 2)
+        or not np.all(np.isfinite(noise_values))
+        or np.any(noise_values <= 0)
+        or (noise_values.size == 2 and noise_values[0] > noise_values[1])
+    ):
+        raise ValueError(
+            "`noise_duration` must be positive or ordered bounds."
         )
 
-    # Validate asymmetric sine parameters.
+    # ============================================================
+    # Validate shared rise-decay parameters
+    # ============================================================
 
-    if burst_type == "asine":
-
+    if burst_type in ("asine", "sawtooth"):
         rise_values = np.atleast_1d(
             np.asarray(rise_ratio, dtype=float)
         )
@@ -442,93 +266,39 @@ def _simulate_bursts(
             or np.any(rise_values >= 1)
         ):
             raise ValueError(
-                "`rise_ratio` must contain finite values "
-                "strictly between 0 and 1."
+                "`rise_ratio` values must be strictly in (0, 1)."
             )
 
         if rise_values.size > 1:
-
             if rise_ratio_sampling not in ("uniform", "choice"):
+                raise ValueError("Invalid `rise_ratio_sampling`.")
+
+            if rise_ratio_sampling == "uniform" and (
+                rise_values.size != 2 or rise_values[0] > rise_values[1]
+            ):
                 raise ValueError(
-                    "`rise_ratio_sampling` must be "
-                    "'uniform' or 'choice'."
+                    "Uniform sampling requires ordered 2-item bounds."
                 )
 
-            if rise_ratio_sampling == "uniform":
-
-                if rise_values.size != 2:
-                    raise ValueError(
-                        "Uniform sampling requires a length-2 "
-                        "`rise_ratio` range."
-                    )
-
-                if rise_values[0] > rise_values[1]:
-                    raise ValueError(
-                        "`rise_ratio` bounds must be "
-                        "in ascending order."
-                    )
-
-    # Validate sawtooth parameters.
-
-    if burst_type == "sawtooth":
-
-        width_values = np.atleast_1d(
-            np.asarray(sawtooth_width, dtype=float)
+    if burst_type == "sawtooth" and (
+        not np.isfinite(sawtooth_smooth_fraction)
+        or sawtooth_smooth_fraction < 0
+    ):
+        raise ValueError(
+            "`sawtooth_smooth_fraction` must be nonnegative."
         )
 
-        if (
-            width_values.ndim != 1
-            or width_values.size == 0
-            or not np.all(np.isfinite(width_values))
-            or np.any(width_values < 0)
-            or np.any(width_values > 1)
-        ):
-            raise ValueError(
-                "`sawtooth_width` must contain finite values "
-                "between 0 and 1."
-            )
-
-        if width_values.size > 1:
-
-            if sawtooth_width_sampling not in ("uniform", "choice"):
-                raise ValueError(
-                    "`sawtooth_width_sampling` must be "
-                    "'uniform' or 'choice'."
-                )
-
-            if sawtooth_width_sampling == "uniform":
-
-                if width_values.size != 2:
-                    raise ValueError(
-                        "Uniform sampling requires a length-2 "
-                        "`sawtooth_width` range."
-                    )
-
-                if width_values[0] > width_values[1]:
-                    raise ValueError(
-                        "`sawtooth_width` bounds must be "
-                        "in ascending order."
-                    )
-
-        if (
-            not np.isfinite(sawtooth_smooth_fraction)
-            or sawtooth_smooth_fraction < 0
-        ):
-            raise ValueError(
-                "`sawtooth_smooth_fraction` must be "
-                "finite and non-negative."
-            )
-
+    # ============================================================
     # Initialize signal and states
+    # ============================================================
 
-    use_scalar_freq = freqs_array.size == 1
+    num_states = freqs_array.size + 1
+    n_samples = len(time_vec)
 
-    num_states = freqs_array.size + 1  # State 0 = baseline
+    signal = np.zeros(n_samples, dtype=float)
+    states = np.zeros(n_samples, dtype=int)
 
-    init_p = np.ones(num_states, dtype=float) / num_states
-
-    signal = np.zeros(len(time_vec), dtype=float)
-    states = np.zeros(len(time_vec), dtype=int)
+    init_p = np.full(num_states, 1 / num_states)
 
     trans_mat = make_transition_matrix(
         num_states=num_states,
@@ -539,119 +309,75 @@ def _simulate_bursts(
     start_idx = 0
     last_state = None
 
+    # ============================================================
     # Generate signal
+    # ============================================================
 
-    while start_idx < len(time_vec):
+    while start_idx < n_samples:
 
-        # Sample current state
+        # Sample the next state.
 
         if last_state is None:
-
-            current_state = rng.choice(
-                num_states,
-                p=init_p,
-            )
-
+            current_state = rng.choice(num_states, p=init_p)
         else:
-
             current_state = rng.choice(
-                num_states,
-                p=trans_mat[last_state],
+                num_states, p=trans_mat[last_state]
             )
 
         last_state = current_state
 
+        # --------------------------------------------------------
         # Baseline segment
+        # --------------------------------------------------------
 
         if current_state == 0:
 
-            curr_noise_duration = _get_duration(
-                noise_duration,
-                rng,
-            )
+            curr_noise_duration = _get_duration(noise_duration, rng)
 
-            n_noise_samples = int(
-                round(curr_noise_duration * fs)
-            )
+            n_noise_samples = int(round(curr_noise_duration * fs))
 
             if n_noise_samples <= 0:
                 raise ValueError(
-                    "`noise_duration` must produce "
-                    "at least one sample."
+                    "`noise_duration` must produce >= 1 sample."
                 )
 
-            end_idx = min(
-                start_idx + n_noise_samples,
-                len(time_vec),
-            )
+            end_idx = min(start_idx + n_noise_samples, n_samples)
 
-            states[start_idx:end_idx] = 0
-
+        # --------------------------------------------------------
         # Oscillatory burst segment
+        # --------------------------------------------------------
 
         else:
 
-            # Burst frequency
+            # Burst frequency.
 
-            freq_burst = (
-                freqs_array[0]
-                if use_scalar_freq
-                else freqs_array[current_state - 1]
-            )
+            freq_burst = freqs_array[current_state - 1]
 
-            # Number of cycles
+            # Number of cycles.
 
-            if isinstance(
-                burst_cycles,
-                (list, tuple, np.ndarray),
-            ):
-
-                if len(burst_cycles) != 2:
-                    raise ValueError(
-                        "`burst_cycles` must be a scalar "
-                        "or a two-element sequence."
-                    )
-
-                num_cycles = int(
-                    rng.integers(
-                        burst_cycles[0],
-                        burst_cycles[1] + 1,
-                    )
-                )
-
-            elif np.isscalar(burst_cycles):
-
-                num_cycles = int(burst_cycles)
-
+            if cycle_values.size == 1:
+                num_cycles = int(cycle_values[0])
             else:
-
-                raise ValueError(
-                    "`burst_cycles` must be a scalar "
-                    "or a two-element sequence."
+                num_cycles = int(
+                    rng.integers(cycle_values[0], cycle_values[1] + 1)
                 )
 
-            if num_cycles <= 0:
-                raise ValueError(
-                    "`burst_cycles` must be positive."
-                )
+            # Burst duration.
 
-            # Burst duration
-
-            total_samples = int(
-                round(num_cycles * fs / freq_burst)
-            )
+            total_samples = int(round(num_cycles * fs / freq_burst))
 
             if total_samples <= 0:
                 raise ValueError(
-                    "Invalid total_samples. "
-                    "Check `fs`, `f`, and `burst_cycles`."
+                    "Burst duration must be >= 1 sample."
                 )
 
             aligned_time = np.arange(total_samples) / fs
 
+            # ====================================================
             # Generate oscillatory carrier
+            # ====================================================
 
-            # 1. Sinusoidal waveform
+            # 1. Standard sine wave.
 
             if burst_type == "sine":
 
@@ -659,11 +385,12 @@ def _simulate_bursts(
                     2 * np.pi * freq_burst * aligned_time
                 )
 
-            # 2. Asymmetric sine waveform (NeuroDSP)
+            # 2. Asymmetric sine or sawtooth wave.
 
-            elif burst_type == "asine":
+            else:
 
                 # Sample one rise-decay ratio per burst.
+                # The same parameter controls both waveform types.
 
                 if rise_values.size == 1:
 
@@ -678,116 +405,91 @@ def _simulate_bursts(
 
                 else:  # choice
 
-                    rdsym = rng.choice(
-                        rise_values
+                    rdsym = float(rng.choice(rise_values))
+
+                # -----------------------------------------------
+                # Asymmetric sine (NeuroDSP)
+                # -----------------------------------------------
+
+                if burst_type == "asine":
+
+                    carrier = np.asarray(
+                        sim_oscillation(
+                            n_seconds=total_samples / fs,
+                            fs=fs,
+                            freq=freq_burst,
+                            cycle="asine",
+                            rdsym=rdsym,
+                        ),
+                        dtype=float,
                     )
 
-                # NeuroDSP generates asymmetric sine waves by
-                # modifying the relative durations of rising
-                # and decaying portions of the oscillatory cycle.
-                #
-                # rdsym = 0.5: symmetric oscillation
-                # rdsym < 0.5: faster rise, slower decay
-                # rdsym > 0.5: slower rise, faster decay
-                #
-                # Reference:
-                # Cole et al. (2019), JOSS, 4(36), 1272.
-                # https://doi.org/10.21105/joss.01272
+                    if carrier.size == 0:
+                        raise ValueError(
+                            "NeuroDSP returned an empty carrier."
+                        )
 
-                carrier = sim_oscillation(
-                    n_seconds=total_samples / fs,
-                    fs=fs,
-                    freq=freq_burst,
-                    cycle="asine",
-                    rdsym=rdsym,
-                )
+                    # Extend a tiled periodic cycle when the library
+                    # returns fewer samples than requested.
 
-                # NeuroDSP constructs oscillations by repeating
-                # discretized cycles. At some frequencies, the
-                # resulting array may be shorter than requested.
-                #
-                # Repeat or truncate the periodic waveform to
-                # ensure the exact requested number of samples.
+                    if carrier.size < total_samples:
+                        n_repeats = int(
+                            np.ceil(total_samples / carrier.size)
+                        )
+                        carrier = np.tile(carrier, n_repeats)
 
-                if len(carrier) == 0:
-                    raise ValueError(
-                        "NeuroDSP returned an empty carrier. "
-                        "Check `fs` and `freq_burst`."
+                    carrier = carrier[:total_samples]
+
+                # -----------------------------------------------
+                # Sawtooth wave (SciPy)
+                # -----------------------------------------------
+
+                else:
+
+                    phase = (
+                        2 * np.pi * freq_burst * aligned_time
                     )
 
-                if len(carrier) != total_samples:
+                    # width = fraction of cycle spent rising.
+                    # Phase shift starts at the rising zero crossing.
 
-                    carrier = np.resize(
-                        carrier,
-                        total_samples,
+                    carrier = sawtooth(
+                        phase + np.pi * rdsym,
+                        width=rdsym,
                     )
 
-            # 3. Sawtooth waveform
+                    # Optional Gaussian smoothing.
 
-            elif burst_type == "sawtooth":
+                    if sawtooth_smooth_fraction > 0:
 
-                # Sample one width per burst.
+                        sigma_samples = (
+                            sawtooth_smooth_fraction
+                            * fs / freq_burst
+                        )
 
-                if width_values.size == 1:
+                        carrier = gaussian_filter1d(
+                            carrier,
+                            sigma=sigma_samples,
+                            mode="wrap",
+                        )
 
-                    width = float(width_values[0])
-
-                elif sawtooth_width_sampling == "uniform":
-
-                    width = rng.uniform(
-                        width_values[0],
-                        width_values[1],
-                    )
-
-                else:  # choice
-
-                    width = rng.choice(
-                        width_values
-                    )
-
-                phase = (
-                    2 * np.pi * freq_burst * aligned_time
-                )
-
-                carrier = sawtooth(
-                    phase + np.pi * width,
-                    width=width,
-                )
-
-                # Apply Gaussian smoothing.
-
-                if sawtooth_smooth_fraction > 0:
-
-                    sigma = (
-                        sawtooth_smooth_fraction
-                        * fs
-                        / freq_burst
-                    )
-
-                    carrier = gaussian_filter1d(
-                        carrier,
-                        sigma=sigma,
-                        mode="nearest",
-                    )
-
+            # ====================================================
             # Burst envelope
+            # ====================================================
 
-            if use_tukey:
+            envelope = (
+                tukey(total_samples, alpha=tukey_alpha)
+                if use_tukey
+                else np.ones(total_samples)
+            )
 
-                envelope = tukey(
-                    total_samples,
-                    alpha=tukey_alpha,
-                )
-
-            else:
-
-                envelope = np.ones(total_samples)
-
+            # ====================================================
             # Burst amplitude
+            # ====================================================
 
             if burst_amp_sampling == "absolute_normal":
 
-                burst_amplitude = np.abs(
+                burst_amplitude = abs(
                     rng.normal(
                         loc=1.0,
                         scale=burst_amp_sigma,
@@ -796,37 +498,32 @@ def _simulate_bursts(
 
             else:  # choice
 
-                burst_amplitude = rng.choice(
-                    burst_amp_factors
+                burst_amplitude = float(
+                    rng.choice(burst_amp_factors)
                 )
 
             # Optional frequency-dependent scaling.
 
-            if (not use_scalar_freq) and power_law_scale:
+            if freqs_array.size > 1 and power_law_scale:
 
-                burst_amplitude *= (
-                    1.0 / (freq_burst ** chi)
-                )
+                burst_amplitude *= freq_burst ** (-chi)
 
+            # ====================================================
             # Construct burst
+            # ====================================================
+
             burst_signal = (
-                burst_amplitude
-                * carrier
-                * envelope
+                burst_amplitude * carrier * envelope
             )
 
-            # Truncate if the burst exceeds signal boundaries.
+            # Truncate at the signal boundary.
 
-            end_idx = min(
-                start_idx + total_samples,
-                len(time_vec),
-            )
+            end_idx = min(start_idx + total_samples, n_samples)
 
-            burst_signal = burst_signal[
+            signal[start_idx:end_idx] = burst_signal[
                 :end_idx - start_idx
             ]
 
-            signal[start_idx:end_idx] = burst_signal
             states[start_idx:end_idx] = current_state
 
         start_idx = end_idx
@@ -1097,9 +794,6 @@ def simulate_bursty_signal(
     power_law_scale=False,
     rise_ratio=0.3,
     rise_ratio_sampling="uniform",
-    sawtooth_width=0.7,
-    sawtooth_smooth_fraction=0.08,
-    sawtooth_width_sampling="uniform",
     use_tukey=True,
     tukey_alpha=0.25,
     rng=None,
@@ -1205,9 +899,6 @@ def simulate_bursty_signal(
         power_law_scale=power_law_scale,
         rise_ratio=rise_ratio,
         rise_ratio_sampling=rise_ratio_sampling,
-        sawtooth_width=sawtooth_width,
-        sawtooth_smooth_fraction=sawtooth_smooth_fraction,
-        sawtooth_width_sampling=sawtooth_width_sampling,
         use_tukey=use_tukey,
         tukey_alpha=tukey_alpha,
         rng=rng,
