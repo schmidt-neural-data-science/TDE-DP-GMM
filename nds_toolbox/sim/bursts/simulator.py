@@ -8,17 +8,6 @@ DOI: 10.21105/joss.01272
 """
 
 
-import numpy as np
-from scipy.signal import sawtooth
-from scipy.signal.windows import tukey
-from neurodsp.filt import filter_signal
-from scipy.ndimage import gaussian_filter1d
-from neurodsp.sim import sim_oscillation
-
-
-
-
-
 def _get_duration(duration_param, rng):
     """
     Determines a duration value.
@@ -74,12 +63,10 @@ def make_transition_matrix(num_states, state_transition, trans_mat=None):
     return trans_mat
 
 
-import numpy as np
-
+from neurodsp.sim import sim_oscillation
+from scipy.ndimage import gaussian_filter1d
 from scipy.signal import sawtooth
 from scipy.signal.windows import tukey
-from scipy.ndimage import gaussian_filter1d
-from neurodsp.sim import sim_oscillation
 
 
 def _simulate_bursts(
@@ -183,14 +170,6 @@ def _simulate_bursts(
         raise ValueError("`fs` must be finite and positive.")
 
     freqs_array = np.atleast_1d(np.asarray(f, dtype=float))
-    if (
-        freqs_array.ndim != 1
-        or freqs_array.size == 0
-        or not np.all(np.isfinite(freqs_array))
-        or np.any(freqs_array <= 0)
-        or np.any(freqs_array >= fs / 2)
-    ):
-        raise ValueError("`f` must lie strictly between 0 and fs/2.")
 
     if burst_type not in ("sine", "asine", "sawtooth"):
         raise ValueError("Invalid `burst_type`.")

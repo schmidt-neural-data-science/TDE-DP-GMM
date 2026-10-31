@@ -1,88 +1,152 @@
-from tqdm.auto import tqdm
-
-import numpy as np
-
-import os
-
 import jax
-from jax import random
-import jax.numpy as jnp
-from jax.scipy.special import logsumexp
+import jax.scipy.stats as jss
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
-
-import jax.scipy.stats as jss
-from numpyro.infer.initialization import init_to_median, init_to_feasible
+from jax import random
+from jax.scipy.special import logsumexp
+from numpyro.infer.initialization import init_to_feasible
+from tqdm.auto import tqdm
 
 
 # see https://github.com/luiarthur/TuringBnpBenchmarks/blob/master/src/dp-gmm/notebooks//dp_sb_gmm_pyro.ipynb
 
+
 @jax.jit
 def stick_breaking(v):
     batch_ndims = len(v.shape) - 1
-    cumprod_one_minus_v = jnp.exp(jnp.log1p(-v).cumsum(-1))
-    one_v = jnp.pad(v, [[0, 0]] * batch_ndims + [[0, 1]], constant_values=1)
-    c_one = jnp.pad(cumprod_one_minus_v, [[0, 0]] * batch_ndims + [[1, 0]],
-                    constant_values=1)
+
+    cumprod_one_minus_v = jnp.exp(
+        jnp.log1p(-v).cumsum(-1)
+    )
+
+    one_v = jnp.pad(
+        v,
+        [[0, 0]] * batch_ndims + [[0, 1]],
+        constant_values=1,
+    )
+
+    c_one = jnp.pad(
+        cumprod_one_minus_v,
+        [[0, 0]] * batch_ndims + [[1, 0]],
+        constant_values=1,
+    )
+
     return one_v * c_one
 
 
-def dpgmm_model(data, *, num_states, batch_size=None, alpha_prior=1.0, learn_alpha=True, learn_mean=True):
+def dpgmm_model(
+        data,
+        *,
+        num_states,
+        batch_size=None,
+        fixed_alpha=1.0,
+        learn_alpha=True,
+        learn_mean=True,
+        alpha_prior_scale=1.0,
+        mean_prior_scale=1.0,
+        sigma_prior_scale=1.0,
+        lkj_concentration=1.0,
+):
     num_data, num_dim = data.shape
 
+    # --------------------------------------------------
+    # Concentration parameter
+    # --------------------------------------------------
     if learn_alpha:
-        # hyper prior
-        alpha = numpyro.sample("alpha", dist.HalfCauchy(1))
-
+        alpha = numpyro.sample(
+            "alpha",
+            dist.HalfCauchy(alpha_prior_scale),
+        )
     else:
-        alpha = numpyro.deterministic("alpha", jnp.array(alpha_prior))
+        alpha = numpyro.deterministic(
+            "alpha",
+            jnp.array(fixed_alpha),
+        )
 
-    # stick-breaking
+    # --------------------------------------------------
+    # Stick-breaking
+    # --------------------------------------------------
     with numpyro.plate("v_plates", num_states - 1):
-        v = numpyro.sample("v", dist.Beta(1.0, alpha))
+        v = numpyro.sample(
+            "v",
+            dist.Beta(1.0, alpha),
+        )
 
     weights = stick_breaking(v)
 
     numpyro.deterministic("weights", weights)
 
-    # --------  component‑specific parameters  ----------------------------
-    if learn_mean:
-        # sample a separate mean for every component
-        with numpyro.plate("components", num_states):
+    # --------------------------------------------------
+    # Component-specific parameters
+    # --------------------------------------------------
+    with numpyro.plate("components", num_states):
+
+        if learn_mean:
             mean = numpyro.sample(
                 "mean",
-                dist.MultivariateNormal(jnp.zeros(num_dim),
-                                        jnp.eye(num_dim))
+                dist.MultivariateNormal(
+                    loc=jnp.zeros(num_dim),
+                    scale_tril=mean_prior_scale * jnp.eye(num_dim),
+                ),
             )
-            sigma = numpyro.sample("sigma",
-                                   dist.HalfCauchy(jnp.ones(num_dim)).to_event(
-                                       1))
 
-            chol_corr = numpyro.sample("chol_corr",
-                                       dist.LKJCholesky(num_dim, concentration=1))
+        else:
+            mean = numpyro.deterministic(
+                "mean",
+                jnp.zeros((num_states, num_dim)),
+            )
 
-            L_cov = chol_corr * sigma[..., None]
+        # Marginal standard deviations
+        sigma = numpyro.sample(
+            "sigma",
+            dist.HalfCauchy(
+                sigma_prior_scale * jnp.ones(num_dim)
+            ).to_event(1),
+        )
 
-    else:
-        # fixed zero mean for each component
-        mean = numpyro.deterministic("mean", jnp.zeros((num_states, num_dim)))
-        with numpyro.plate("components", num_states):
-            sigma = numpyro.sample("sigma",
-                                   dist.HalfCauchy(jnp.ones(num_dim)).to_event(1))
+        # Correlation matrix
+        chol_corr = numpyro.sample(
+            "chol_corr",
+            dist.LKJCholesky(
+                num_dim,
+                concentration=lkj_concentration,
+            ),
+        )
 
-            chol_corr = numpyro.sample("chol_corr",
-                                       dist.LKJCholesky(num_dim, concentration=1.0))
-            L_cov = numpyro.deterministic("L_cov", chol_corr * sigma[..., None])
+        # Cholesky factor of covariance matrix
+        L_cov = chol_corr * sigma[..., None]
 
+    # --------------------------------------------------
+    # Minibatch
+    # --------------------------------------------------
     if batch_size is None:
-        batch_size = num_data  # use all the data point all the times
+        batch_size = num_data
 
-    # mixture assignment + likelihood
-    with numpyro.plate("data", num_data, subsample_size=batch_size) as ind:
+    # --------------------------------------------------
+    # Mixture assignment and likelihood
+    # --------------------------------------------------
+    with numpyro.plate(
+            "data",
+            num_data,
+            subsample_size=batch_size,
+    ) as ind:
+
         batch_data = data[ind]
-        mixture_dist = dist.MixtureSameFamily(dist.Categorical(probs=weights),
-                                              dist.MultivariateNormal(mean, scale_tril=L_cov))
-        numpyro.sample("obs", mixture_dist, obs=batch_data)
+
+        mixture_dist = dist.MixtureSameFamily(
+            dist.Categorical(probs=weights),
+            dist.MultivariateNormal(
+                mean,
+                scale_tril=L_cov,
+            ),
+        )
+
+        numpyro.sample(
+            "obs",
+            mixture_dist,
+            obs=batch_data,
+        )
 
 
 from numpyro.infer import SVI, Trace_ELBO
@@ -91,49 +155,104 @@ from numpyro.infer.autoguide import AutoNormal
 
 from joblib import Parallel, delayed
 
-def _fit_DPGMM(x,
-               num_states,
-               *,
-               rng_key=None,
-               seed=0,
-               learn_mean=False,
-               learn_alpha=True,
-               num_epochs=3000,
-               num_particles=1,
-               batch_size=2 ** 10,
-               alpha_prior=1.0,
-               learning_rate=5e-2,
-               use_epoch_tqdm=False
-               ):
+
+def _fit_DPGMM(
+        x,
+        num_states,
+        *,
+        rng_key=None,
+        seed=0,
+        learn_mean=False,
+        learn_alpha=True,
+        num_epochs=3000,
+        num_particles=1,
+        batch_size=2 ** 10,
+        fixed_alpha=1.0,
+        alpha_prior_scale=1.0,
+        mean_prior_scale=1.0,
+        sigma_prior_scale=1.0,
+        lkj_concentration=1.0,
+        learning_rate=5e-2,
+        use_epoch_tqdm=False,
+):
     x = jnp.array(x)
-    guide = AutoNormal(dpgmm_model, init_loc_fn=init_to_feasible)
 
-    # For numerical stability, normalize the scale by the total number of data points.
+    guide = AutoNormal(
+        dpgmm_model,
+        init_loc_fn=init_to_feasible,
+    )
+
+    # For numerical stability, normalize the scale
+    # by the total number of data points.
     scale_factor = 1.0 / float(x.size)
-    scaled_model = numpyro.handlers.scale(dpgmm_model, scale=scale_factor)
-    scaled_guide = numpyro.handlers.scale(guide, scale=scale_factor)
 
-    optimizer = numpyro.optim.ClippedAdam(step_size=learning_rate,
-                                          b1=0.95,
-                                          b2=0.999,
-                                          clip_norm=10, )
+    scaled_model = numpyro.handlers.scale(
+        dpgmm_model,
+        scale=scale_factor,
+    )
 
-    elbo = Trace_ELBO(num_particles=num_particles, vectorize_particles=True)
+    scaled_guide = numpyro.handlers.scale(
+        guide,
+        scale=scale_factor,
+    )
 
-    svi = SVI(scaled_model, scaled_guide, optimizer, loss=elbo)
+    optimizer = numpyro.optim.ClippedAdam(
+        step_size=learning_rate,
+        b1=0.95,
+        b2=0.999,
+        clip_norm=10,
+    )
+
+    elbo = Trace_ELBO(
+        num_particles=num_particles,
+        vectorize_particles=True,
+    )
+
+    svi = SVI(
+        scaled_model,
+        scaled_guide,
+        optimizer,
+        loss=elbo,
+    )
 
     if rng_key is None:
         rng_key = random.PRNGKey(int(seed))
 
-    svi_result = svi.run(rng_key, num_epochs, x, num_states=num_states, batch_size=batch_size, alpha_prior=alpha_prior,
-                         learn_mean=learn_mean, learn_alpha=learn_alpha, progress_bar=use_epoch_tqdm)
+    # --------------------------------------------------
+    # Model hyperparameters
+    # --------------------------------------------------
+    model_kwargs = dict(
+        num_states=num_states,
+        batch_size=batch_size,
+        fixed_alpha=fixed_alpha,
+        learn_mean=learn_mean,
+        learn_alpha=learn_alpha,
+        alpha_prior_scale=alpha_prior_scale,
+        mean_prior_scale=mean_prior_scale,
+        sigma_prior_scale=sigma_prior_scale,
+        lkj_concentration=lkj_concentration,
+    )
+
+    # --------------------------------------------------
+    # Fit model
+    # --------------------------------------------------
+    svi_result = svi.run(
+        rng_key,
+        num_epochs,
+        x,
+        **model_kwargs,
+        progress_bar=use_epoch_tqdm,
+    )
 
     est_params = guide.median(svi_result.params)
 
-
-    #compute ELBO estimate with 100 monte carlo samples
-    elbo_eval = Trace_ELBO(num_particles = 100, vectorize_particles = True)
-
+    # --------------------------------------------------
+    # Compute final ELBO estimate
+    # --------------------------------------------------
+    elbo_eval = Trace_ELBO(
+        num_particles=100,
+        vectorize_particles=True,
+    )
 
     final_loss = elbo_eval.loss(
         rng_key,
@@ -141,13 +260,15 @@ def _fit_DPGMM(x,
         scaled_model,
         scaled_guide,
         x,
-        num_states=num_states,
-        batch_size=batch_size,
-        alpha_prior=alpha_prior,
-        learn_mean=learn_mean,
-        learn_alpha=learn_alpha,)
+        **model_kwargs,
+    )
 
-    return est_params, np.array(svi_result.losses), final_loss
+    return (
+        est_params,
+        np.asarray(svi_result.losses),
+        final_loss,
+    )
+
 
 from tqdm_joblib import tqdm_joblib
 def fit_DPGMM(
@@ -158,26 +279,54 @@ def fit_DPGMM(
         learn_alpha=True,
         num_models=10,
         num_epochs=3000,
-        num_particles= 10,
-        batch_size=2**10,
+        num_particles=10,
+        batch_size=2 ** 10,
         use_epoch_tqdm=False,
         use_model_tqdm=True,
-        alpha_prior=1.0,
+        fixed_alpha=1.0,
+        alpha_prior_scale=1.0,
+        mean_prior_scale=1.0,
+        sigma_prior_scale=1.0,
+        lkj_concentration=1.0,
         learning_rate=5e-2,
         verbose=False,
-        n_jobs=1,  # how many processes (-1 for all cores)
-        main_seed=0,  # master seed for all runs
+        n_jobs=1,
+        main_seed=0,
 ):
     x = np.array(data)
 
     # --- generate one integer seed per model run ---
-    # Use numpy's SeedSequence for independent child seeds (robust & portable)
     ss = np.random.SeedSequence(int(main_seed))
-    child_seeds = [s.generate_state(1, dtype=np.uint32)[0] for s in ss.spawn(num_models)]
+    child_seeds = [
+        int(s.generate_state(1, dtype=np.uint32)[0])
+        for s in ss.spawn(num_models)
+    ]
+
+    # --- arguments shared across model runs ---
+    fit_kwargs = dict(
+        learn_mean=learn_mean,
+        learn_alpha=learn_alpha,
+        num_epochs=num_epochs,
+        num_particles=num_particles,
+        batch_size=batch_size,
+        fixed_alpha=fixed_alpha,
+        alpha_prior_scale=alpha_prior_scale,
+        mean_prior_scale=mean_prior_scale,
+        sigma_prior_scale=sigma_prior_scale,
+        lkj_concentration=lkj_concentration,
+        learning_rate=learning_rate,
+        use_epoch_tqdm=use_epoch_tqdm,
+    )
 
     iterator = range(num_models)
+
     if use_model_tqdm and n_jobs == 1:
-        iterator = tqdm(iterator, desc=f"Fitting {num_models} DPGMM models", unit="model", leave=False)
+        iterator = tqdm(
+            iterator,
+            desc=f"Fitting {num_models} DPGMM models",
+            unit="model",
+            leave=False,
+        )
 
     loss_best = np.inf
     est_params_best = None
@@ -185,24 +334,20 @@ def fit_DPGMM(
     best_seed = None
     loss_all = []
 
+    # --------------------------------------------------
+    # Sequential fitting
+    # --------------------------------------------------
     if n_jobs == 1:
         for i in iterator:
             params_i, losses_i, final_loss_i = _fit_DPGMM(
                 x,
                 num_states,
-                rng_key=None,
-                seed=int(child_seeds[i]),
-                learn_mean=learn_mean,
-                learn_alpha=learn_alpha,
-                num_epochs=num_epochs,
-                num_particles=num_particles,
-                batch_size=batch_size,
-                alpha_prior=alpha_prior,
-                learning_rate=learning_rate,
-                use_epoch_tqdm=use_epoch_tqdm,
+                seed=child_seeds[i],
+                **fit_kwargs,
             )
+
             loss_all.append(losses_i)
-            run_best = final_loss_i
+            run_best = float(final_loss_i)
 
             if run_best < loss_best:
                 loss_best = run_best
@@ -210,25 +355,23 @@ def fit_DPGMM(
                 best_model_id = i
                 best_seed = child_seeds[i]
 
+    # --------------------------------------------------
+    # Parallel fitting
+    # --------------------------------------------------
     else:
-        # ---- parallel with joblib ----
         indices = list(range(num_models))
 
         if use_model_tqdm:
-            with tqdm_joblib(total=len(indices), desc=f"Fitting {num_models} DPGMM models"):
+            with tqdm_joblib(
+                    total=len(indices),
+                    desc=f"Fitting {num_models} DPGMM models",
+            ):
                 results = Parallel(n_jobs=n_jobs)(
                     delayed(_fit_DPGMM)(
                         x,
                         num_states,
-                        learn_mean=learn_mean,
-                        learn_alpha=learn_alpha,
-                        num_epochs=num_epochs,
-                        num_particles=num_particles,
-                        batch_size=batch_size,
-                        alpha_prior=alpha_prior,
-                        learning_rate=learning_rate,
-                        use_epoch_tqdm=use_epoch_tqdm,
-                        seed=int(child_seeds[i]),
+                        seed=child_seeds[i],
+                        **fit_kwargs,
                     )
                     for i in indices
                 )
@@ -236,28 +379,28 @@ def fit_DPGMM(
         else:
             if verbose:
                 print("------running dpgmm-----")
-            results = Parallel(n_jobs=n_jobs, return_as="generator")(
+
+            results = Parallel(
+                n_jobs=n_jobs,
+                return_as="generator",
+            )(
                 delayed(_fit_DPGMM)(
                     x,
                     num_states,
-                    learn_mean=learn_mean,
-                    learn_alpha=learn_alpha,
-                    num_epochs=num_epochs,
-                    num_particles=num_particles,
-                    batch_size=batch_size,
-                    alpha_prior=alpha_prior,
-                    learning_rate=learning_rate,
-                    use_epoch_tqdm=use_epoch_tqdm,
-                    seed=int(child_seeds[i]),
+                    seed=child_seeds[i],
+                    **fit_kwargs,
                 )
                 for i in indices
             )
 
-        # collect in order
+        # Collect in order
         results = list(results)
-        for i, (params_i, losses_i, final_loss_i) in zip(indices, results):
+
+        for i, (params_i, losses_i, final_loss_i) in zip(
+                indices, results
+        ):
             loss_all.append(losses_i)
-            run_best = final_loss_i
+            run_best = float(final_loss_i)
 
             if run_best < loss_best:
                 loss_best = run_best
@@ -270,11 +413,23 @@ def fit_DPGMM(
         if best_model_id is not None:
             print(f"Best model ID: {best_model_id}")
 
-    params = extract_params(est_params_best, learn_mean=learn_mean, learn_alpha=learn_alpha)
-    alpha, weights, means, covs = params["alpha"], params["weights"], params["means"], params["covs"]
+    # --------------------------------------------------
+    # Extract estimated parameters
+    # --------------------------------------------------
+    params = extract_params(
+        est_params_best,
+        learn_mean=learn_mean,
+        learn_alpha=learn_alpha,
+    )
+
+    alpha = params["alpha"]
+    weights = params["weights"]
+    means = params["means"]
+    covs = params["covs"]
 
     if alpha is None:
-        alpha = float(alpha_prior)
+        alpha = float(fixed_alpha)
+
     if means is None:
         means = np.zeros((num_states, x.shape[1]))
 
@@ -321,8 +476,6 @@ def extract_params(est_params, learn_mean=True, learn_alpha=True):
 
 
 import jax.numpy as jnp
-
-
 def truncate(
     means,
     covs,

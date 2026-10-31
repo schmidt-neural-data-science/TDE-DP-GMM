@@ -388,47 +388,54 @@ def compare_decoding_performance(*,
     Notes
     -----
     DP-GMM and HMM can use different numbers of time-delay embeddings.
-
     Thresholding uses the raw signal directly because it does not use TDE.
     """
 
     # ---------------------------------------------------------------------
     # Unpack data
     # ---------------------------------------------------------------------
-    signal = data_info["signal"]
-    true_states = data_info["true_states"]
-    fs = data_info["fs"]
+    signal = data_info.get("signal")
+    true_states = data_info.get("true_states")
+    fs = data_info.get("fs")
 
     # ---------------------------------------------------------------------
     # Unpack model info
     # ---------------------------------------------------------------------
-    seed = model_info["seed"]
+    seed = model_info.get("seed", 0)
 
-    use_dpgmm = model_info["use_dpgmm"]
-    use_hmm = model_info["use_hmm"]
-    use_thresholding = model_info["use_thresholding"]
-
+    use_dpgmm = model_info.get("use_dpgmm", False)
+    use_hmm = model_info.get("use_hmm", False)
+    use_thresholding = model_info.get("use_thresholding", False)
 
     # If only model_info["num_emb"] exists, both DP-GMM and HMM use it.
     # If method-specific values exist, they override it.
-    num_emb_default = model_info["num_emb"]
+    num_emb_default = model_info.get("num_emb")
     num_emb_dpgmm = model_info.get("num_emb_dpgmm", num_emb_default)
     num_emb_hmm = model_info.get("num_emb_hmm", num_emb_default)
 
     remove_edge_states = model_info.get("remove_edge_states", False)
 
-    num_states = model_info["num_states"]
-    truncate_weights = model_info["truncate_weights"]
+    num_states = model_info.get("num_states")
+    truncate_weights = model_info.get("truncate_weights")
 
-    use_model_tqdm = model_info["use_model_tqdm"]
+    use_model_tqdm = model_info.get("use_model_tqdm", True)
 
-    filter_freq = model_info["filter_freq"]
-    min_samples = model_info["min_samples"]
-    imputing_spurious_states = model_info["imputing_spurious_states"]
-    compute_summary_stats = model_info["compute_summary_stats"]
+    filter_freq = model_info.get("filter_freq")
+    min_samples = model_info.get("min_samples")
+    imputing_spurious_states = model_info.get("imputing_spurious_states", False)
+    compute_summary_stats = model_info.get("compute_summary_stats", False)
 
-    debug_mode = model_info["debug_mode"]
-    n_jobs = model_info["n_jobs"]
+    debug_mode = model_info.get("debug_mode", False)
+    n_jobs = model_info.get("n_jobs", 1)
+
+    # DP-GMM hyperparameters
+    learn_mean = model_info.get("learn_mean", False)
+    learn_alpha = model_info.get("learn_alpha", True)
+    fixed_alpha = model_info.get("fixed_alpha", 1.0)
+    alpha_prior_scale = model_info.get("alpha_prior_scale", 1.0)
+    mean_prior_scale = model_info.get("mean_prior_scale", 1.0)
+    sigma_prior_scale = model_info.get("sigma_prior_scale", 1.0)
+    lkj_concentration = model_info.get("lkj_concentration", 1.0)
 
     records = []
 
@@ -448,28 +455,31 @@ def compare_decoding_performance(*,
 
         t0 = time.perf_counter()
 
+        # Shared DP-GMM fitting arguments
+        dpgmm_kwargs = dict(
+            data=tde_signal,
+            num_states=num_states,
+            learn_mean=learn_mean,
+            learn_alpha=learn_alpha,
+            fixed_alpha=fixed_alpha,
+            alpha_prior_scale=alpha_prior_scale,
+            mean_prior_scale=mean_prior_scale,
+            sigma_prior_scale=sigma_prior_scale,
+            lkj_concentration=lkj_concentration,
+            use_epoch_tqdm=False,
+            use_model_tqdm=use_model_tqdm,
+            main_seed=seed,
+            n_jobs=n_jobs,
+            verbose=False,
+        )
+
         if debug_mode:
-            dpgmm_result = fit_DPGMM(
-                data=tde_signal,
-                num_states=num_states,
+            dpgmm_kwargs.update(
                 num_epochs=1,
                 num_models=1,
-                use_epoch_tqdm=False,
-                use_model_tqdm=use_model_tqdm,
-                main_seed=seed,
-                n_jobs=n_jobs,
-                verbose=False,
             )
-        else:
-            dpgmm_result = fit_DPGMM(
-                data=tde_signal,
-                num_states=num_states,
-                use_epoch_tqdm=False,
-                n_jobs=n_jobs,
-                use_model_tqdm=use_model_tqdm,
-                main_seed=seed,
-                verbose=False,
-            )
+
+        dpgmm_result = fit_DPGMM(**dpgmm_kwargs)
 
         fit_time = time.perf_counter() - t0
 

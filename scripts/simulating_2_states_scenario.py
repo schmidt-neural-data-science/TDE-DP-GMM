@@ -1,5 +1,7 @@
-import numpy as np
 import os
+
+import numpy as np
+
 from nds_toolbox.sim.bursts.simulator import simulate_bursty_signal
 
 #%%
@@ -33,12 +35,11 @@ state_transition = "return_to_baseline" #'return_to_baseline'
 
 beta = 1 #pink noise
 
-
-# For burst segments, specify dur. ation as the number of cycles.
-burst_cycles = [3, 10]  #3, 12
+# For burst segments, specify duration as the number of cycles.
+burst_cycles = [3, 10]
 
 # For noise segments, specify duration in seconds.
-noise_duration = [0.2, 2] #0.5, 2
+noise_duration = [0.2, 2]
 
 
 
@@ -76,7 +77,7 @@ for sample_id in range(n_samples):
             # inside this sample.
             rng = np.random.default_rng(sample_seed)
 
-            time_vec = np.linspace(0, n_seconds, int(fs * n_seconds), endpoint=False)
+            time_vec = np.arange(int(fs * n_seconds)) / fs
 
             signal_dict = simulate_bursty_signal(time_vec, fs, freq, burst_cycles, noise_duration, state_transition = state_transition, burst_type = "sine", use_filter= True, snr_db= snr_db, burst_amp_sigma = burst_amp_sigma, beta = beta, tukey_alpha=tukey_alpha, rng = rng)
 
