@@ -283,3 +283,51 @@ with open(save_path, "wb") as f:
     pickle.dump(all_results, f)
 
 print(f"Performance results saved as {save_path}")
+
+"""
+# ============================================================
+# Run only the failing sample and condition
+# ============================================================
+sample_id = 0
+target_exponents = (1.0, 2.0)
+
+matching_ids = np.flatnonzero(
+    np.all(
+        np.isclose(exponent_range, target_exponents),
+        axis=1,
+    )
+)
+
+if matching_ids.size != 1:
+    raise ValueError(
+        f"Expected exactly one condition matching "
+        f"{target_exponents}, found {matching_ids.size}."
+    )
+
+condition_id = int(matching_ids[0])
+
+print(
+    f"Running sample={sample_id}, "
+    f"condition={condition_id}, "
+    f"exponents={tuple(exponent_range[condition_id])}"
+)
+
+all_results = [_run_one(sample_id, condition_id)]
+
+
+# ============================================================
+# Save this run separately
+# ============================================================
+os.makedirs(performance_dir, exist_ok=True)
+
+save_path = os.path.join(
+    performance_dir,
+    f"results_{sim_cond}_sample0_exponents1_2_test.pkl",
+)
+
+with open(save_path, "wb") as f:
+    pickle.dump(all_results, f)
+
+print(f"Performance results saved as {save_path}")
+
+"""

@@ -24,9 +24,9 @@ os.makedirs(data_dir, exist_ok=True)
 # ============================================================
 
 seed_base = 2026
-n_samples = 10
+n_samples = 20
 
-fs = 100
+fs = 250
 
 freq = [20]
 snr_db = 2
@@ -53,8 +53,8 @@ n_seconds_vec = np.array([
     180,  # 3 min
     600,  # 10 min
     1800,  # 30 min
-    5400,  # 1.5 hours
-    18000,  # 5 hours
+    3600,  # 1 hour
+    10800,  # 3 hours
 ])
 n_conditions = len(n_seconds_vec)
 

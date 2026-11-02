@@ -34,7 +34,7 @@ rise_ratio = [0.1, 0.9]  # waveform asymmetry will be sampled Uniform distributi
 rise_ratio_sampling = "uniform"
 
 # Condition 1: burst morphologies
-burst_types = ["sine", "asine"]
+burst_types = ["sine", "asine", "sawtooth"]
 
 # Condition 2: Signal-to-noise ratio (in dB)
 snr_range = np.arange(-10, 11, 2)  # varying SNRs from -10 to 10 dB

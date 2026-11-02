@@ -35,7 +35,7 @@ snr_db = 2
 # %%
 # Condition
 
-prior_range = [0.1, 0.3, 0.5, 3.0, 5.0, 10.0]
+prior_range = [0.01, 0.1, 0.3, 0.5, 3.0, 5.0, 10.0, 100]
 
 alpha_prior_scale_range = prior_range
 sigma_prior_scale_range = prior_range

@@ -37,26 +37,36 @@ os.makedirs(performance_dir, exist_ok=True)
 
 seed_base = 2026
 n_samples = 10
-
 fs = 250
 
-freq = [20, 40]
-snr = 0
+freq = [20]
+snr_db = 2
 
-# ============================================================
+burst_type = "sine"
+burst_amp_sigma = 0.1
+
+tukey_alpha = 0.25
+state_transition = "return_to_baseline"
+
+beta = 1  # Pink noise
+
+# Burst duration in cycles
+burst_cycles = [3, 10]
+
+# Noise duration in seconds
+noise_duration = [0.2, 2]
+
 # Experimental condition: signal duration
-# ============================================================
-
 n_seconds_vec = np.array([
+    10,  # 10 sec
     30,  # 30 sec
     60,  # 1 min
-    300,  # 5 min
-    60 * 10,  # 10 min
+    180,  # 3 min
+    600,  # 10 min
     1800,  # 30 min
     3600,  # 1 hour
-    3600 * 5,  # 5 hours
+    10800,  # 3 hours
 ])
-
 n_conditions = len(n_seconds_vec)
 
 max_seconds = int(np.max(n_seconds_vec))
@@ -162,7 +172,7 @@ def _run_one(sample_id, dur_id):
         "true_states": st,
         "burst_f": freq,
         "fs": fs,
-        "snr": snr,
+        "snr": snr_db,
         "n_seconds": n_seconds_vec[dur_id],
     }
 
@@ -197,6 +207,7 @@ def _run_one(sample_id, dur_id):
     return compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
 
 
+"""
 # ============================================================
 # Test: first sample, all recording durations
 # ============================================================
@@ -264,5 +275,3 @@ with open(save_path, "wb") as f:
     pickle.dump(all_results, f)
 
 print(f"Performance results saved as {save_path}")
-
-"""

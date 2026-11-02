@@ -98,11 +98,11 @@ os.makedirs(data_dir, exist_ok=True)
 # Simulation parameters
 # ============================================================
 seed_base = 2026
-n_samples = 10
+n_samples = 20
 
 fs = 250
 segment_seconds = 30
-n_repetitions = 3
+n_repetitions = 5
 
 snr_db = 2
 freq = 20
