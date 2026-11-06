@@ -36,11 +36,11 @@ os.makedirs(performance_dir, exist_ok=True)
 # ============================================================
 
 seed_base = 2026
-n_samples = 10
-fs = 250
+n_samples = 20
+fs = 100
 
 freq = [20]
-snr_db = 2
+snr_db = 0
 
 burst_type = "sine"
 burst_amp_sigma = 0.1
@@ -67,6 +67,9 @@ n_seconds_vec = np.array([
     3600,  # 1 hour
     10800,  # 3 hours
 ])
+
+
+
 n_conditions = len(n_seconds_vec)
 
 max_seconds = int(np.max(n_seconds_vec))
@@ -204,7 +207,12 @@ def _run_one(sample_id, dur_id):
         "n_jobs": inner_n_jobs,
     }
 
-    return compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
+    return compare_decoding_performance(
+        data_info=data_info,
+        model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
+        verbose=True,
+    )
 
 
 """

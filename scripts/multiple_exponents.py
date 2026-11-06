@@ -69,6 +69,7 @@ expected_exponent_range = np.array([
 # Prefer the condition metadata stored with the simulation.
 if saved_exponent_range is not None:
 
+
     exponent_range = np.asarray(
         saved_exponent_range,
         dtype=float,
@@ -207,6 +208,7 @@ def _run_one(sample_id, condition_id):
     return compare_decoding_performance(
         data_info=data_info,
         model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
         verbose=True,
     )
 

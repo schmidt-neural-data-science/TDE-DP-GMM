@@ -88,7 +88,9 @@ num_emb_hmm = choose_embedding_dim(
     ensure_odd=True,
 )
 
-num_states = int(np.ceil(np.log(len(signal)))) # E[K] = a ln n
+# Symmetric TDE trims (E - 1) / 2 samples at each end.
+n_embedded_dpgmm = len(signal) - (num_emb_dpgmm - 1)
+num_states = int(np.ceil(np.log(n_embedded_dpgmm)))
 # this sets K above the expected occupied clusters
 print(f"Number of states: {num_states}")
 
@@ -127,7 +129,12 @@ model_info = {
 }
 
 
-res = compare_decoding_performance(data_info = data_info, model_info = model_info,verbose = True)
+res = compare_decoding_performance(
+    data_info=data_info,
+    model_info=model_info,
+    metrics=("mcc", "ari", "kappa"),
+    verbose=True,
+)
 
 print(res)
 

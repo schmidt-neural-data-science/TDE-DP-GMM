@@ -116,7 +116,12 @@ def _run_one(num_states):
 
 
 
-    return compare_decoding_performance(data_info = data_info, model_info = model_info,verbose = True)
+    return compare_decoding_performance(
+        data_info=data_info,
+        model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
+        verbose=True,
+    )
 
 performance_dir = "../data/performance"
 os.makedirs(performance_dir, exist_ok=True)

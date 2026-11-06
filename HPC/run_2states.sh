@@ -11,10 +11,6 @@
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
-# Submit from the cluster project root after creating the logs directory:
-# cd ~/projects/TDE-DP-GMM
-# mkdir -p logs
-# sbatch run_2states.fix.sh
 
 set -euo pipefail
 
@@ -49,5 +45,9 @@ echo "Conda environment: ${ENV_NAME}"
 echo "Inner workers requested: ${N_PROCS}"
 python -V
 command -v python
+
+# Use the toolbox from this checkout and fail early if it lacks metrics.
+export PYTHONPATH="${PWD}/..${PYTHONPATH:+:${PYTHONPATH}}"
+python -c 'import inspect; from nds_toolbox.utils.helper import compare_decoding_performance as f; print(inspect.getfile(f)); assert "metrics" in inspect.signature(f).parameters'
 
 srun python -u 2_states_scenario.py

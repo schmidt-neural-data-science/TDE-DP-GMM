@@ -189,6 +189,7 @@ for num_emb in embedding_dims:
     res = compare_decoding_performance(
         data_info=data_info,
         model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
         verbose=True,
     )
 

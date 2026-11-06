@@ -7,7 +7,7 @@
 #SBATCH --mem=128G
 #SBATCH -t 7-00:00:00
 #SBATCH --hint=nomultithread
-#SBATCH -J tde_dp_gmm_within_state_amplitude_variability
+#SBATCH -J tde_dp_gmm_signal_duration
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
@@ -46,4 +46,8 @@ echo "Inner workers requested: ${N_PROCS}"
 python -V
 command -v python
 
-srun python -u within_state_amplitude_variability.py
+# Use the toolbox from this checkout and fail early if it lacks metrics.
+export PYTHONPATH="${PWD}/..${PYTHONPATH:+:${PYTHONPATH}}"
+python -c 'import inspect; from nds_toolbox.utils.helper import compare_decoding_performance as f; print(inspect.getfile(f)); assert "metrics" in inspect.signature(f).parameters'
+
+srun python -u signal_duration.py

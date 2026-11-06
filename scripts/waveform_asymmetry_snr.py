@@ -92,7 +92,12 @@ def _run_one(sample_id, burst_type_id, snr_id):
         "n_jobs": inner_n_jobs
     }
 
-    return compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
+    return compare_decoding_performance(
+        data_info=data_info,
+        model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
+        verbose=True,
+    )
 
 
 # %%

@@ -96,7 +96,7 @@ os.makedirs(data_dir, exist_ok = True)
 seed_base = 2026
 
 # Simulation parameters.
-n_samples = 10
+n_samples = 20
 
 fs = 250         # Sampling frequency in Hz.
 n_seconds = 60*3   # Total duration in seconds.

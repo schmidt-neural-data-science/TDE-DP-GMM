@@ -26,10 +26,10 @@ os.makedirs(data_dir, exist_ok=True)
 seed_base = 2026
 n_samples = 20
 
-fs = 250
+fs = 100
 
 freq = [20]
-snr_db = 2
+snr_db = 0
 
 burst_type = "sine"
 burst_amp_sigma = 0.1

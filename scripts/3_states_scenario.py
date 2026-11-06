@@ -11,7 +11,8 @@ import itertools
 #%%
 
 total_cores = os.cpu_count() or 1
-inner_n_jobs = total_cores
+inner_n_jobs = min(int(os.environ.get("N_PROCS", "10")),
+                   int(os.environ.get("SLURM_CPUS_PER_TASK", total_cores)))
 
 
 print("total_cores:", total_cores)
@@ -99,7 +100,12 @@ def _run_one(sample_id, freq_id, snr_id):
         "n_jobs": inner_n_jobs
     }
 
-    return compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
+    return compare_decoding_performance(
+        data_info=data_info,
+        model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
+        verbose=True,
+    )
 
 
 

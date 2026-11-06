@@ -176,7 +176,15 @@ def simulate_bursty_signal_with_multiple_exponents(
     for repetition_id in range(n_repetitions):
 
         for exponent_id, exponent in enumerate(exponents):
-            rng = np.random.default_rng(seed + repetition_id + exponent_id)
+            # Keep sample, repetition, and exponent IDs as separate seed
+            # coordinates. Adding them can give independent segments the
+            # same seed, e.g. sample 0 / repetition 1 and sample 1 /
+            # repetition 0.
+            rng = np.random.default_rng([
+                seed,
+                repetition_id,
+                exponent_id,
+            ])
 
             signal_dict = simulate_bursty_signal(
                 time_vec,

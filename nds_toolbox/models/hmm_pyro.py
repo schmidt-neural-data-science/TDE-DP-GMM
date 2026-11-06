@@ -131,9 +131,9 @@ def fit_HMM(
         data,
         num_states,
         learn_mean=False,
-        sequence_length=1000, #500
+        sequence_length=1000,
         batch_size= 2 ** 4, #2 ** 4
-        num_models=20,
+        num_models=10,
         num_epochs=3000,
         num_particles=1,
         learning_rate=5e-2,

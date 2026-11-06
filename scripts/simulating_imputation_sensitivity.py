@@ -41,37 +41,53 @@ noise_duration = [0.2, 2]
 
 snr_db = 2
 
-freq = [20]
 
-fs = [250]
+fs = 250
+time_vec = np.arange(int(fs * n_seconds)) / fs
+
+
+# Condition: varying frequencies
+freqs = [10, 20, 30, 40, 50]
+
 
 ###################################################################
 
 
-states_sample = np.empty((n_samples), dtype=object)
-bursts_sample = np.empty_like(states_sample)
-noise_sample = np.empty_like(states_sample)
-signal_sample = np.empty_like(states_sample)
+# Initialize variables
+states_sample = np.zeros((n_samples, len(freqs), len(time_vec)))
+bursts_sample = np.zeros((n_samples, len(freqs), len(time_vec)))
+noise_sample = np.zeros((n_samples, len(freqs),len(time_vec)))
+signal_sample = np.zeros((n_samples, len(freqs), len(time_vec)))
+
 
 for sample_id in range(n_samples):
-    # One seed per sample
     sample_seed = seed_base + sample_id
-
     rng = np.random.default_rng(sample_seed)
 
-    time_vec = np.arange(int(fs * n_seconds)) / fs
+    for freq_id, freq in enumerate(freqs):
+        signal_dict = simulate_bursty_signal(
+            time_vec,
+            fs,
+            freq,
+            burst_cycles,
+            noise_duration,
+            state_transition=state_transition,
+            burst_type="sine",
+            use_filter=True,
+            snr_db=snr_db,
+            burst_amp_sigma=burst_amp_sigma,
+            beta=beta,
+            tukey_alpha=tukey_alpha,
+            rng=rng,
+        )
 
-    signal_dict = simulate_bursty_signal(time_vec, fs, freq, burst_cycles, noise_duration,
-                                         state_transition=state_transition, burst_type="sine", use_filter=True,
-                                         snr_db=snr_db, burst_amp_sigma=burst_amp_sigma, beta=beta,
-                                         tukey_alpha=tukey_alpha, rng=rng)
+        states_sample[sample_id, freq_id] = signal_dict["states"]
+        bursts_sample[sample_id, freq_id] = signal_dict["bursts"]
+        noise_sample[sample_id, freq_id] = signal_dict["noise"]
+        signal_sample[sample_id, freq_id] = signal_dict["signal"]
 
-    states_sample[sample_id] = signal_dict["states"]
-    bursts_sample[sample_id] = signal_dict["bursts"]
-    noise_sample[sample_id] = signal_dict["noise"]
-    signal_sample[sample_id] = signal_dict["signal"]
 
-print("Signal shape", signal_sample.shape, "[samples]: the data points are stored as object")
+print("Signal shape", signal_sample.shape, "[samples, freqs]: the data points are stored as object")
 
 ### save the data
 

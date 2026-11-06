@@ -47,4 +47,8 @@ echo "Inner workers requested: ${N_PROCS}"
 python -V
 command -v python
 
+# Use the toolbox from this checkout and fail early if it lacks metrics.
+export PYTHONPATH="${PWD}/..${PYTHONPATH:+:${PYTHONPATH}}"
+python -c 'import inspect; from nds_toolbox.utils.helper import compare_decoding_performance as f; print(inspect.getfile(f)); assert "metrics" in inspect.signature(f).parameters'
+
 srun python -u 3_states_scenario.py

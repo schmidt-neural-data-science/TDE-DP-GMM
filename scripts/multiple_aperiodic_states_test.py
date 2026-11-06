@@ -209,7 +209,12 @@ model_info = {
     "n_jobs": n_jobs
 }
 
-res = compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
+res = compare_decoding_performance(
+    data_info=data_info,
+    model_info=model_info,
+    metrics=("mcc", "ari", "kappa"),
+    verbose=True,
+)
 
 print(res)
 

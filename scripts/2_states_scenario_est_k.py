@@ -104,7 +104,12 @@ def _run_one(sample_id, freq_id, fs_id, emb_id):
         "n_jobs": inner_n_jobs
     }
 
-    return compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
+    return compare_decoding_performance(
+        data_info=data_info,
+        model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
+        verbose=True,
+    )
 
 # Build the parameter grid
 param_iter = itertools.product(

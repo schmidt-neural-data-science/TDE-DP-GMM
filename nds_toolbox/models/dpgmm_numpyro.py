@@ -7,7 +7,7 @@ from jax import random
 from jax.scipy.special import logsumexp
 from numpyro.infer.initialization import init_to_feasible
 from tqdm.auto import tqdm
-
+import warnings
 
 # see https://github.com/luiarthur/TuringBnpBenchmarks/blob/master/src/dp-gmm/notebooks//dp_sb_gmm_pyro.ipynb
 
@@ -39,6 +39,7 @@ def dpgmm_model(
         data,
         *,
         num_states,
+        weight_prior="dirichlet_process",
         batch_size=None,
         fixed_alpha=1.0,
         learn_alpha=True,
@@ -64,18 +65,31 @@ def dpgmm_model(
             jnp.array(fixed_alpha),
         )
 
-    # --------------------------------------------------
-    # Stick-breaking
-    # --------------------------------------------------
-    with numpyro.plate("v_plates", num_states - 1):
-        v = numpyro.sample(
-            "v",
-            dist.Beta(1.0, alpha),
+    if weight_prior == "dirichlet_process":
+        with numpyro.plate("v_plates", num_states - 1):
+            v = numpyro.sample(
+                "v",
+                dist.Beta(1.0, alpha),
+            )
+
+        weights = numpyro.deterministic(
+            "weights",
+            stick_breaking(v),
         )
 
-    weights = stick_breaking(v)
+    elif weight_prior == "dirichlet_distribution":
+        weights = numpyro.sample(
+            "weights",
+            dist.Dirichlet(jnp.ones(num_states) * alpha),
+        )
 
-    numpyro.deterministic("weights", weights)
+    else:
+        raise ValueError(
+            f"Unknown weight_prior: {weight_prior!r}. "
+            "Expected 'dirichlet_process' or 'dirichlet_distribution'."
+        )
+
+
 
     # --------------------------------------------------
     # Component-specific parameters
@@ -122,6 +136,20 @@ def dpgmm_model(
     # --------------------------------------------------
     if batch_size is None:
         batch_size = num_data
+    else:
+        batch_size = int(batch_size)
+
+        if batch_size > num_data:
+            warnings.warn(
+                f"batch_size ({batch_size}) exceeds num_data ({num_data}). "
+                f"Using batch_size={num_data} instead.",
+                UserWarning,
+                stacklevel=2,
+            )
+            batch_size = num_data
+
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive.")
 
     # --------------------------------------------------
     # Mixture assignment and likelihood
@@ -162,6 +190,7 @@ def _fit_DPGMM(
         *,
         rng_key=None,
         seed=0,
+        weight_prior="dirichlet_process",
         learn_mean=False,
         learn_alpha=True,
         num_epochs=3000,
@@ -225,6 +254,7 @@ def _fit_DPGMM(
         num_states=num_states,
         batch_size=batch_size,
         fixed_alpha=fixed_alpha,
+        weight_prior=weight_prior,
         learn_mean=learn_mean,
         learn_alpha=learn_alpha,
         alpha_prior_scale=alpha_prior_scale,
@@ -275,6 +305,7 @@ def fit_DPGMM(
         *,
         data,
         num_states,
+        weight_prior = "dirichlet_process",
         learn_mean=False,
         learn_alpha=True,
         num_models=10,
@@ -304,6 +335,7 @@ def fit_DPGMM(
 
     # --- arguments shared across model runs ---
     fit_kwargs = dict(
+        weight_prior = weight_prior,
         learn_mean=learn_mean,
         learn_alpha=learn_alpha,
         num_epochs=num_epochs,
@@ -402,7 +434,7 @@ def fit_DPGMM(
             loss_all.append(losses_i)
             run_best = float(final_loss_i)
 
-            if run_best < loss_best:
+            if np.isfinite(run_best) and run_best < loss_best:
                 loss_best = run_best
                 est_params_best = params_i
                 best_model_id = i
@@ -413,6 +445,15 @@ def fit_DPGMM(
         if best_model_id is not None:
             print(f"Best model ID: {best_model_id}")
 
+
+    if est_params_best is None:
+        raise RuntimeError(
+            f"All {num_models} initializations returned nonfinite "
+            "final losses. No model could be selected. "
+            f"Try lowering learning_rate from {learning_rate:g} "
+            f"to {learning_rate / 5:g} or {learning_rate / 10:g}."
+        )
+
     # --------------------------------------------------
     # Extract estimated parameters
     # --------------------------------------------------
@@ -420,6 +461,7 @@ def fit_DPGMM(
         est_params_best,
         learn_mean=learn_mean,
         learn_alpha=learn_alpha,
+        weight_prior=weight_prior,
     )
 
     alpha = params["alpha"]
@@ -447,33 +489,55 @@ def fit_DPGMM(
     }
 
 
-def extract_params(est_params, learn_mean=True, learn_alpha=True):
-    # alpha
-    alpha = None
-    if learn_alpha:
-        alpha = est_params["alpha"]
+def extract_params(
+        est_params,
+        learn_mean=True,
+        learn_alpha=True,
+        *,
+        weight_prior="dirichlet_process",
+):
+    if est_params is None:
+        raise ValueError(
+            "No valid fitted parameters were found. "
+            "Check the losses for failed initializations."
+        )
 
-    # stick-breaking weights
-    v = est_params["v"]
-    weights = stick_breaking(v)
+    alpha = est_params["alpha"] if learn_alpha else None
 
-    # covariances
-    chol_corr = est_params["chol_corr"]
-    sigma = est_params["sigma"]
-    L_covs = [jnp.diag(sig) @ L for sig, L in zip(sigma, chol_corr)]
-    covs = jnp.array([L @ L.T for L in L_covs])
+    # Mixture weights
+    if weight_prior == "dirichlet_process":
+        if "v" in est_params:
+            weights = stick_breaking(est_params["v"])
+        elif est_params["sigma"].shape[-2] == 1:
+            weights = jnp.ones(1)
+        else:
+            raise KeyError("Missing 'v' for a multi-component DP model.")
 
-    means = None
-    if learn_mean:
-        means = est_params["mean"]
+    elif weight_prior == "dirichlet_distribution":
+        weights = est_params["weights"]
+
+    else:
+        raise ValueError(
+            f"Unknown weight_prior: {weight_prior!r}. "
+            "Expected 'dirichlet_process' or 'dirichlet_distribution'."
+        )
+
+    # Covariances: L_cov = diag(sigma) @ chol_corr
+    sigma = jnp.asarray(est_params["sigma"])
+    chol_corr = jnp.asarray(est_params["chol_corr"])
+
+    L_covs = sigma[..., :, None] * chol_corr
+    covs = L_covs @ jnp.swapaxes(L_covs, -1, -2)
+
+    means = est_params["mean"] if learn_mean else None
+
 
     return {
-        "alpha": alpha,
-        "weights": weights,
-        "means": means,
-        "covs": covs,
+        "alpha": np.asarray(alpha) if alpha is not None else None,
+        "weights": np.asarray(weights),
+        "means": np.asarray(means) if means is not None else None,
+        "covs": np.asarray(covs),
     }
-
 
 import jax.numpy as jnp
 def truncate(
