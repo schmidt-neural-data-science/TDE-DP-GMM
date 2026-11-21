@@ -1,4 +1,3 @@
-
 import itertools
 import os
 import pickle
@@ -8,18 +7,16 @@ import numpy as np
 from nds_toolbox.preprocessing.features import choose_embedding_dim
 from nds_toolbox.utils.helper import compare_decoding_performance
 
-#%%
+# %%
 
 total_cores = os.cpu_count() or 1
-inner_n_jobs = 5
-
+inner_n_jobs = 10
 
 print("total_cores:", total_cores)
 print("inner_n_jobs:", inner_n_jobs)
 
-
-#%%
-sim_cond = "4states_snr"
+# %%
+sim_cond = "within_state_amplitude_variability"
 signal_dir = "../data/simulations"
 performance_dir = "../data/performance"
 
@@ -31,15 +28,58 @@ print("shape of signal_sample", signal_sample.shape)
 seed_base = 2026
 fs = 250
 
-freq = [20, 30, 40]
+freq = [20]
 
-#condition: snr
-snr_range = np.arange(-10, 11, 2)
+snr = 2
+
+# Condition: varying amplitude factor
+
+base_amp_factor = 1.0
+
+variability_levels = np.array([
+    0.0,
+    0.5,
+    1.0,
+    1.5,
+    2.0,
+    2.5,
+    3.0,
+])
+
+# Each burst independently takes one of two amplitude factors.
+amp_factor_pairs = [
+    (
+        base_amp_factor,
+        base_amp_factor + delta,
+    )
+    for delta in variability_levels
+]
+
+# Maximum-to-minimum amplitude ratio
+amp_ratios = np.array([
+    max(factors) / min(factors)
+    for factors in amp_factor_pairs
+])
+
+n_conditions = len(amp_factor_pairs)
+
+print("Amplitude factor pairs:")
+for factors, ratio in zip(amp_factor_pairs, amp_ratios):
+    print(f"{factors}: ratio = {ratio:.2f}")
 
 
-#%%
 
-def _run_one(sample_id, snr_id):
+imputation_window_sec_dpgmm = 0.03
+min_samples_dpgmm = max(1, int(round(imputation_window_sec_dpgmm * fs)))
+
+print("min_samples:dpgmm ", min_samples_dpgmm)
+print("min_samples (sec):dpgmm ", min_samples_dpgmm / fs)
+
+
+
+# %%
+
+def _run_one(sample_id, condition_id):
     freq_for_emb = float(np.mean(freq))
 
     num_emb_dpgmm = choose_embedding_dim(
@@ -49,19 +89,21 @@ def _run_one(sample_id, snr_id):
         ensure_odd=True,
     )
 
-    snr = snr_range[snr_id]
-    sig = signal_sample[sample_id, snr_id]
+    sig = signal_sample[sample_id, condition_id]
     sig = (sig - np.mean(sig)) / np.std(sig)  # standardize
 
-    st = states_sample[sample_id, snr_id].astype(int)
+    st = states_sample[sample_id, condition_id].astype(int)
 
     num_states = int(np.ceil(np.log(len(sig))))  # E[K] = a ln n
-
 
     # use different seed for each sample
     seed = int(seed_base + sample_id)
 
     data_info = {
+        "sample_id": sample_id,
+        "condition_id": condition_id,
+        "amp_factors": amp_factor_pairs[condition_id],
+        "amp_ratio": amp_ratios[condition_id],
         "signal": sig,
         "true_states": st,
         "burst_f": freq,
@@ -77,33 +119,80 @@ def _run_one(sample_id, snr_id):
 
         "num_emb": num_emb_dpgmm,
 
-
         "use_model_tqdm": False,
         "use_thresholding": False,
         "filter_freq": np.array(freq),
         "imputing_spurious_states": True,
         "remove_edge_states": True,
         "compute_summary_stats": False,
-        "min_samples": int(np.round((2 / np.max(freq)) * fs)),
+        "min_samples": min_samples_dpgmm,
         "truncate_weights": True,
         "debug_mode": False,
         "n_jobs": inner_n_jobs
     }
 
-    return compare_decoding_performance(data_info=data_info, model_info=model_info, verbose=True)
+    return compare_decoding_performance(
+        data_info=data_info,
+        model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
+        verbose=True,
+    )
+
+
+# %%
+# test
+
+"""
+# Build the parameter grid: first sample only, all waveform widths
+param_iter = itertools.product(
+    range(1),                       # Only sample_id = 0
+    range(signal_sample.shape[1]),  # All amplitude conditions
+)
+
+total_sims = signal_sample.shape[1]
+
+print("num sims:", total_sims)
+
+from tqdm.auto import tqdm
+
+bar = tqdm(
+    param_iter,
+    total=total_sims,
+    desc="Running sims",
+    unit="sim",
+)
+
+all_results = [_run_one(i, j) for i, j in bar]
+
+# Save test results separately
+os.makedirs(performance_dir, exist_ok=True)
+
+save_path = os.path.join(
+    performance_dir,
+    f"results_{sim_cond}_test.pkl",
+)
+
+with open(save_path, "wb") as f:
+    pickle.dump(all_results, f)
+
+print(f"Performance results saved as {save_path}")
+
+"""
+# %%
 
 
 # Build the parameter grid
+
+
 param_iter = itertools.product(
     range(signal_sample.shape[0]),
     range(signal_sample.shape[1]),
 )
 
-
 print("num sims: ", int(signal_sample.size / signal_sample.shape[-1]))
 
-
 from tqdm.auto import tqdm
+
 total_sims = signal_sample.shape[0] * signal_sample.shape[1]
 bar = tqdm(param_iter, total=total_sims, desc="Running sims", unit="sim")
 
@@ -115,4 +204,3 @@ save_path = os.path.join(performance_dir, f"results_{sim_cond}.pkl")
 with open(save_path, "wb") as f:
     pickle.dump(all_results, f)
 print(f"Performance results saved as {save_path}")
-

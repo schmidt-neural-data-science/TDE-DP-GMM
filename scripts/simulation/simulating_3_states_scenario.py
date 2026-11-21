@@ -1,6 +1,7 @@
 from scipy.signal import welch
 import numpy as np
 import os
+from pathlib import Path
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 from nds_toolbox.sim.bursts.simulator import simulate_bursty_signal
@@ -80,9 +81,10 @@ plt.rcParams.update({
 #%%
 
 simulation_condition = "3states"
-figure_dir  = f"../figures/{simulation_condition}"
-data_dir = "../data/simulations"
-data_file = f"../data/simulations/{simulation_condition}_data.npz"
+project_root = Path(__file__).resolve().parents[2]
+figure_dir = project_root / "figures" / simulation_condition
+data_dir = project_root / "data" / "simulations"
+data_file = data_dir / f"{simulation_condition}_data.npz"
 
 
 
@@ -96,11 +98,11 @@ os.makedirs(data_dir, exist_ok = True)
 seed_base = 2026
 
 # Simulation parameters.
-n_samples = 5
+n_samples = 20
 
 fs = 250         # Sampling frequency in Hz.
 n_seconds = 60*3   # Total duration in seconds.
-time_vec = np.linspace(0, n_seconds, int(fs * n_seconds))
+time_vec = np.arange(int(fs * n_seconds)) / fs
 
 
 burst_amp_sigma = 0.1
@@ -171,7 +173,7 @@ print("Signal shape", signal_sample.shape, "[samples, frequencies, SNRs, data po
 
 ### save the data
 
-data_file = f"{data_dir}/{simulation_condition}_data.npz"
+data_file = data_dir / f"{simulation_condition}_data.npz"
 np.savez_compressed(data_file,
                     signal_sample=signal_sample,
                     states_sample=states_sample,
@@ -181,67 +183,4 @@ np.savez_compressed(data_file,
 print(f"Data saved as {data_file}")
 
 
-psds = []
 
-for sample_id in range(signal_sample.shape[0]):
-    for freq_id in range(signal_sample.shape[1]):
-        for snr_id in range(signal_sample.shape[2]):
-            f, psd = welch(signal_sample[sample_id, freq_id, snr_id, :], fs)
-            psds.append(np.array(psd))
-
-psds = np.array(psds).reshape(signal_sample.shape[0], signal_sample.shape[1], signal_sample.shape[2], -1)
-
-
-
-mean_psds = psds.mean(axis=0)
-
-
-norm  = Normalize(vmin=min(snr_range), vmax=max(snr_range))
-cmap  = plt.get_cmap("viridis")
-
-n_cols = len(freqs_dist_range)
-fig, axes = plt.subplots(1, n_cols, figsize=(FIG_WIDTH, 2), sharex=True, sharey=True)
-
-for col_idx, freq in enumerate(freqs_dist_range):
-    ax = axes[col_idx]
-    for j, snr in enumerate(snr_range):
-        ax.plot(
-            f,
-            mean_psds[col_idx, j, :],
-            linewidth=0.7,
-            color=cmap(norm(snr)),
-            label=f"{snr} dB",
-            alpha = 1
-        )
-    ax.set_yscale("log")
-    ax.set_title(f"{freq[0]} Hz & {freq[1]} Hz")
-    ax.set_xlabel("Frequency (Hz)")
-    ax.set_xlim(1, 80)
-    if col_idx == 0:
-        ax.set_ylabel(f"Log PSD")
-
-# 3) single legend to the right
-handles, labels = axes[0].get_legend_handles_labels()
-fig.legend(
-    handles, labels,
-    title="SNR (dB)",
-    loc="center left",
-    bbox_to_anchor=(1.01, 0.5),
-    frameon=False,
-    fontsize="large"
-)
-
-# 4) layout adjustment
-plt.tight_layout()
-plt.subplots_adjust(right=1)
-
-#### save the figures
-
-file_path = os.path.join(figure_dir, "mean_psd_by_snr.pdf")
-fig.savefig(file_path,
-            bbox_inches = "tight",
-            transparent = False)
-
-
-
-plt.show()

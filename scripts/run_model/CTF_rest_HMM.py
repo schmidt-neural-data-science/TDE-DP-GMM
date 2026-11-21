@@ -4,10 +4,14 @@ from nds_toolbox.utils.helper import compare_decoding_performance
 import pickle
 import os
 import numpy as np
+from pathlib import Path
 
 
 
-signal_dir = "../data/CTF_rest"
+# Resolve data paths from this file, independently of the working directory.
+project_root = Path(__file__).resolve().parents[2]
+signal_dir = project_root / "data" / "CTF_rest"
+
 files = [f"{signal_dir}/bursts/subject{i:02d}.npy" for i in range(65)]
 data_all = [np.load(f, allow_pickle=True) for f in files]
 
@@ -44,7 +48,7 @@ signal = np.concatenate(data_all)
 signal = (signal - np.mean(signal)) / np.std(signal) #standarize the signal
 signal = signal[:, 0]
 
-num_emb = choose_embedding_dim(np.mean(f[peaks]), fs, min_cycles = 3, ensure_odd = True)
+num_emb = choose_embedding_dim(np.mean(f[peaks]), fs, min_cycles = 2.5, ensure_odd = True)
 
 print("num_embeddings", num_emb) #15 emb
 
@@ -52,6 +56,13 @@ print("num_embeddings", num_emb) #15 emb
 
 
 num_states_vec = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+
+
+imputation_window_sec = 0.07
+min_samples = max(1, int(round(imputation_window_sec * fs)))
+print("min_samples: ", min_samples)
+
+
 
 
 
@@ -73,19 +84,25 @@ def _run_one(num_states):
         "use_hmm": True,
         "num_states": num_states,
         "num_emb": num_emb,
+        "num_models": 10,
         "use_model_tqdm": True,
         "use_thresholding": False,
         "filter_freq": None,
         "imputing_spurious_states":True,
         "compute_summary_stats": True,
-        "min_samples": np.round((2/f[peaks.max()])*fs).astype(int),
+        "min_samples": min_samples,
         "truncate_weights": False,
         "debug_mode": False,
         "n_jobs": n_jobs
     }
 
 
-    return compare_decoding_performance(data_info = data_info, model_info = model_info,verbose = True)
+    return compare_decoding_performance(
+        data_info=data_info,
+        model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
+        verbose=True,
+    )
 
 
 

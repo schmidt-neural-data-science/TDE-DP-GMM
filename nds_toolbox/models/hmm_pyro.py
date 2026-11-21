@@ -131,9 +131,9 @@ def fit_HMM(
         data,
         num_states,
         learn_mean=False,
-        sequence_length=1000, #500
+        sequence_length=1000,
         batch_size= 2 ** 4, #2 ** 4
-        num_models=20,
+        num_models=10,
         num_epochs=3000,
         num_particles=1,
         learning_rate=5e-2,
@@ -239,6 +239,7 @@ def fit_HMM(
     loss_best = np.inf
     best_model_id = None
     best_param_state = None
+    best_latents = None
 
     for i, param_state_i in enumerate(param_states_all):
         pyro.clear_param_store()
@@ -259,22 +260,24 @@ def fit_HMM(
             loss_best = elbo_i
             best_model_id = i
             best_param_state = param_state_i
+            # The guide currently holds this restart's parameters.
+            best_latents = guide_eval.median(x_tensor, num_states, learn_mean, None, None)
+
+    if best_latents is None:
+        raise RuntimeError("No HMM initialization produced a selectable evaluation loss.")
 
     if verbose:
         print(f"Best negative ELBO: {loss_best:.6g}")
         print(f"Best model ID: {best_model_id}")
 
-    # Extract median of posterior for the best run ---
     pyro.clear_param_store()
     pyro.get_param_store().set_state(best_param_state)
-    # sample latent sites once under the best parameters
-    est_latents = guide_eval.median(x_tensor, num_states, learn_mean, None, None)
 
     if learn_mean:
-        initial_probs, transition_probs, means, covs = extract_params(est_latents,
+        initial_probs, transition_probs, means, covs = extract_params(best_latents,
                                                                       learn_mean=learn_mean)
     else:
-        initial_probs, transition_probs, covs = extract_params(est_latents,
+        initial_probs, transition_probs, covs = extract_params(best_latents,
                                                                learn_mean=learn_mean)
         means = np.zeros((num_states, covs.shape[1]))
 

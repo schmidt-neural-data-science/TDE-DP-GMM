@@ -150,6 +150,9 @@ def _simulate_bursts(
     Notes
     -----
 
+    Burst durations are rounded up to whole samples. A burst that would
+    extend past the output boundary is omitted; the remainder stays baseline.
+
     NeuroDSP's "asine" uses discretized repeated cycles, so its
     realized frequency may differ from `f` if `fs / f` is noninteger.
 
@@ -343,12 +346,16 @@ def _simulate_bursts(
 
             # Burst duration.
 
-            total_samples = int(round(num_cycles * fs / freq_burst))
+            total_samples = int(np.ceil(num_cycles * fs / freq_burst))
 
             if total_samples <= 0:
                 raise ValueError(
                     "Burst duration must be >= 1 sample."
                 )
+
+            # Keep only complete bursts; leave any remainder as baseline.
+            if start_idx + total_samples > n_samples:
+                break
 
             aligned_time = np.arange(total_samples) / fs
 
@@ -495,9 +502,9 @@ def _simulate_bursts(
                 burst_amplitude * carrier * envelope
             )
 
-            # Truncate at the signal boundary.
+            # The complete burst is guaranteed to fit.
 
-            end_idx = min(start_idx + total_samples, n_samples)
+            end_idx = start_idx + total_samples
 
             signal[start_idx:end_idx] = burst_signal[
                 :end_idx - start_idx

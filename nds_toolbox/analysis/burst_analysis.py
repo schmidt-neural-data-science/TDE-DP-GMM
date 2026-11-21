@@ -135,6 +135,17 @@ def mean_state_lifetimes(states, num_states = None, fs=None):
     mean_lt_states = np.array([np.nanmean(lt) if lt.size else np.nan for lt in lt_states])
     return mean_lt_states
 
+def median_state_lifetimes(states, num_states = None, fs=None):
+    if num_states is None:
+        num_states = states.max()+1
+
+    if fs is None:
+        fs = 1
+
+    lt_states = state_lifetimes(states, num_states, fs)
+    median_lt_states = np.array([np.nanmedian(lt) if lt.size else np.nan for lt in lt_states])
+    return median_lt_states
+
 
 def state_intervals(states, num_states = None, fs = None):
 

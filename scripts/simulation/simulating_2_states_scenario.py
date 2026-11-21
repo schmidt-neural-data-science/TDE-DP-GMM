@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -7,9 +8,10 @@ from nds_toolbox.sim.bursts.simulator import simulate_bursty_signal
 #%%
 
 simulation_condition = "2states"
-figure_dir  = f"../figures/{simulation_condition}"
-data_dir = "../data/simulations"
-data_file = f"../data/simulations/{simulation_condition}_data.npz"
+project_root = Path(__file__).resolve().parents[2]
+figure_dir = project_root / "figures" / simulation_condition
+data_dir = project_root / "data" / "simulations"
+data_file = data_dir / f"{simulation_condition}_data.npz"
 
 
 (os.makedirs
@@ -93,7 +95,7 @@ print("Signal shape", signal_sample.shape, "[samples, cond1, cond2]: the data po
 
 ### save the data
 
-data_file = f"{data_dir}/{simulation_condition}_data.npz"
+data_file = data_dir / f"{simulation_condition}_data.npz"
 np.savez_compressed(data_file,
                     signal_sample=signal_sample,
                     states_sample=states_sample,

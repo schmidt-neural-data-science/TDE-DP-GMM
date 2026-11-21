@@ -75,12 +75,15 @@ from nds_toolbox.utils.helper import compare_decoding_performance
 import numpy as np
 import pickle
 import os
+from pathlib import Path
 import numpy as np
 
 
 
-signal_dir = "../data/CTF_rest"
-files = [f"{signal_dir}/bursts/subject{i:02d}.npy" for i in range(65)]
+# Resolve data paths from this file, independently of the working directory.
+project_root = Path(__file__).resolve().parents[2]
+signal_dir = project_root / "data" / "CTF_rest"
+files = [signal_dir / "bursts" / f"subject{i:02d}.npy" for i in range(65)]
 data_all = [np.load(f, allow_pickle=True) for f in files]
 
 
@@ -147,7 +150,10 @@ print("num_states: ", num_states)
 #15 states
 
 
+imputation_window_sec = 0.03
+min_samples = max(1, int(round(imputation_window_sec * fs)))
 
+print("min_samples: ", min_samples)
 #%%
 data_info = {
     "signal": signal,
@@ -172,22 +178,27 @@ model_info = {
     "imputing_spurious_states":True,
     "remove_edge_states": True,
     "compute_summary_stats": True,
-    "min_samples":np.round((2/f[peaks.max()])*fs).astype(int),
+    "min_samples":min_samples,
     "truncate_weights": True,
     "debug_mode": False,
     "n_jobs": n_jobs
 }
 
 
-res = compare_decoding_performance(data_info = data_info, model_info = model_info,verbose = True)
+res = compare_decoding_performance(
+    data_info=data_info,
+    model_info=model_info,
+    metrics=("mcc", "ari", "kappa"),
+    verbose=True,
+)
 
 
-performance_dir = "../data/CTF_rest"
-os.makedirs(performance_dir, exist_ok=True)
+performance_dir = signal_dir
+performance_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Save to performance_dir
-save_path = os.path.join(performance_dir, "CTF_rest_result.pkl")
+save_path = performance_dir / "CTF_rest_result.pkl"
 with open(save_path, "wb") as f:
     pickle.dump(res, f)
 

@@ -69,6 +69,7 @@ expected_exponent_range = np.array([
 # Prefer the condition metadata stored with the simulation.
 if saved_exponent_range is not None:
 
+
     exponent_range = np.asarray(
         saved_exponent_range,
         dtype=float,
@@ -124,6 +125,12 @@ for condition_id in valid_condition_ids:
 
 print("Number of valid conditions:", len(valid_condition_ids))
 
+
+imputation_window_sec_dpgmm = 0.03
+min_samples_dpgmm = max(1, int(round(imputation_window_sec_dpgmm * fs)))
+
+print("min_samples:dpgmm ", min_samples_dpgmm)
+print("min_samples (sec):dpgmm ", min_samples_dpgmm / fs)
 
 # ============================================================
 # Model evaluation
@@ -196,9 +203,7 @@ def _run_one(sample_id, condition_id):
         "imputing_spurious_states": True,
         "remove_edge_states": True,
         "compute_summary_stats": False,
-        "min_samples": int(
-            np.round((2 / np.max(freq)) * fs)
-        ),
+        "min_samples": min_samples_dpgmm,
         "truncate_weights": True,
         "debug_mode": False,
         "n_jobs": inner_n_jobs,
@@ -207,6 +212,7 @@ def _run_one(sample_id, condition_id):
     return compare_decoding_performance(
         data_info=data_info,
         model_info=model_info,
+        metrics=("mcc", "ari", "kappa"),
         verbose=True,
     )
 
@@ -283,3 +289,51 @@ with open(save_path, "wb") as f:
     pickle.dump(all_results, f)
 
 print(f"Performance results saved as {save_path}")
+
+"""
+# ============================================================
+# Run only the failing sample and condition
+# ============================================================
+sample_id = 0
+target_exponents = (1.0, 2.0)
+
+matching_ids = np.flatnonzero(
+    np.all(
+        np.isclose(exponent_range, target_exponents),
+        axis=1,
+    )
+)
+
+if matching_ids.size != 1:
+    raise ValueError(
+        f"Expected exactly one condition matching "
+        f"{target_exponents}, found {matching_ids.size}."
+    )
+
+condition_id = int(matching_ids[0])
+
+print(
+    f"Running sample={sample_id}, "
+    f"condition={condition_id}, "
+    f"exponents={tuple(exponent_range[condition_id])}"
+)
+
+all_results = [_run_one(sample_id, condition_id)]
+
+
+# ============================================================
+# Save this run separately
+# ============================================================
+os.makedirs(performance_dir, exist_ok=True)
+
+save_path = os.path.join(
+    performance_dir,
+    f"results_{sim_cond}_sample0_exponents1_2_test.pkl",
+)
+
+with open(save_path, "wb") as f:
+    pickle.dump(all_results, f)
+
+print(f"Performance results saved as {save_path}")
+
+"""
