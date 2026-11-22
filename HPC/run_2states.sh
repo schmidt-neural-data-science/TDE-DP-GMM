@@ -11,6 +11,10 @@
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
+# Submit from the project root (create logs/ first):
+# array_id=$(sbatch --parsable --array=0-29 HPC/run_2states.sh)
+# array_id=${array_id%%;*}
+# sbatch --dependency="afterok:${array_id}" --cpus-per-task=1 HPC/run_2states.sh --merge --run-id "${array_id}"
 
 set -euo pipefail
 
@@ -50,4 +54,16 @@ command -v python
 export PYTHONPATH="${PWD}/..${PYTHONPATH:+:${PYTHONPATH}}"
 python -c 'import inspect; from nds_toolbox.utils.helper import compare_decoding_performance as f; print(inspect.getfile(f)); assert "metrics" in inspect.signature(f).parameters'
 
-srun python -u 2_states_scenario.py
+driver=run_model/2_states_scenario.py
+if [[ ! -f "$driver" ]]; then
+    driver=2_states_scenario.py
+fi
+if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+    set -- --part-id "${SLURM_ARRAY_TASK_ID}" --run-id "${SLURM_ARRAY_JOB_ID}" "$@"
+fi
+for arg in "$@"; do
+    if [[ "$arg" == "--merge" ]]; then
+        exec python -u "$driver" "$@"
+    fi
+done
+srun python -u "$driver" "$@"

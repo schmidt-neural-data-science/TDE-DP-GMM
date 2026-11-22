@@ -71,8 +71,8 @@ plt.rcParams.update({
     "figure.autolayout": True,
 
     # --- DPI ---
-    "savefig.dpi": 900,
-    "figure.dpi": 300,
+    "savefig.dpi": 600,
+    "figure.dpi": 100,
 })
 
 # %%
@@ -125,18 +125,25 @@ df["num_active_states"] = df["est_params"].apply(
     if isinstance(x, dict) else np.nan
 )
 
-# overide active states for imputation, because imputation might remove some states completely
-methods = [
+# Imputation can remove states from the decoded sequence.
+imputed_methods = [
     "DP-GMM (Imputed)",
     "HMM (Imputed)",
     "Thresholding (Imputed)",
     "DP-GMM (Imputed & Edge-removed)",
 ]
 
-mask = df["method"].isin(methods)
+mask = df["method"].isin(imputed_methods)
 df.loc[mask, "num_active_states"] = df.loc[mask, "est_states"].apply(
     lambda states: np.unique(states).size
 )
+
+#%%
+def relabel_freqs(burst_f):
+    f0, f1 = burst_f
+    label = f"{str(f0)}&{str(f1)}"
+    return label
+
 
 # %%
 
@@ -914,6 +921,8 @@ mats = [
     dpgmm_heat, hmm_heat, thresh_heat,
     dpgmm_imputed_heat, hmm_imputed_heat, thresh_imputed_heat
 ]
+for matrix in mats:
+    matrix.index = matrix.index.map(relabel_freqs)
 
 vmin = np.nanmin([m.to_numpy() for m in mats])
 vmax = np.nanmax([m.to_numpy() for m in mats])
@@ -1182,27 +1191,12 @@ methods = [
 ]
 titles = ["Raw", "Edge-removed", "Imputed"]
 
-
-def relabel_freqs(burst_f):
-    f0, f1 = burst_f
-    label = f"{str(f0)}&{str(f1)}"
-    return label
-
-
-# Prepare labels without modifying df.
-data = df.loc[df["method"].isin(methods)].copy()
-data["frequency"] = data["burst_f"].apply(
-    lambda value: value
-    if isinstance(value, str)
-    else relabel_freqs(value)
-)
-
-frequency_order = sorted(
-    data["frequency"].unique(),
-    key=lambda label: tuple(map(float, label.split("&"))),
-)
+data = df.loc[
+    df["method"].isin(methods), ["method", "burst_f", "snr", metric, "num_active_states"]
+].copy()
+data["frequency"] = data["burst_f"].map(relabel_freqs)
+frequency_order = [relabel_freqs(pair) for pair in sorted(data["burst_f"].unique())]
 snr_order = np.sort(data["snr"].dropna().unique())
-
 
 def median_heatmap(method, column):
     return (
@@ -1913,3 +1907,198 @@ fig.savefig(
 )
 
 plt.show()
+
+# %%
+
+num_states = 3
+snr_db = 6
+snr_id = np.where(snr_range == snr_db)[0][0]
+plot_f = (20, 40)
+freq_id = np.where((np.array(freqs_dist_range) == np.array(plot_f)).all(axis=1))[0][0]
+
+sample_id = 1
+
+res = df.query("burst_f == @plot_f and snr == @snr_db")
+dpgmm_res = res.query("method == 'DP-GMM (Imputed)'").iloc[sample_id]
+num_emb = dpgmm_res.num_emb
+
+signal = signal_sample[sample_id, freq_id, snr_id]
+trimmed_signal = trim_data(signal, num_emb)
+trimmed_states = trim_data(states_sample[sample_id, freq_id, snr_id], num_emb).astype(int)
+trimmed_bursts = trim_data(bursts_sample[sample_id, freq_id, snr_id], num_emb)
+trimmed_time_vec = np.arange(len(trimmed_states)) / fs
+
+from nds_toolbox.preprocessing.features import (compute_tde, trim_data)
+
+tde_signal = compute_tde(signal, num_emb)
+dim_vec = np.arange(-num_emb // 2 + 1, num_emb // 2 + 1).astype(int)
+
+
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from matplotlib.ticker import MaxNLocator
+import numpy as np
+
+
+
+cmap = plt.get_cmap("tab10")
+colors = ["#E0E0E0"] + [cmap(i) for i in range(num_states)]
+state_labels = [f"S{i + 1}" for i in range(num_states)]
+
+
+
+plot_t = 12
+n_plot = int(plot_t * fs)
+
+# Better sample-aligned time vector
+trimmed_time_vec = np.arange(len(trimmed_states)) / fs
+
+time_plot = trimmed_time_vec[:n_plot]
+signal_plot = trimmed_signal[:n_plot]
+states_plot = trimmed_states[:n_plot]
+bursts_plot = trimmed_bursts[:n_plot]
+
+# Keep the orientation that worked
+tde_plot = tde_signal[:n_plot, ::-1].T
+
+# Symmetric robust color limits
+vmax = np.nanpercentile(np.abs(tde_plot), 99.5)
+vmin = -vmax
+
+# ------------------------------------------------------------
+# Figure layout: two plot axes + one dedicated colorbar axis
+# ------------------------------------------------------------
+fig = plt.figure(figsize=(FIG_WIDTH, 3))
+
+gs = GridSpec(
+    2, 2,
+    figure=fig,
+    width_ratios=[1.0, 0.025],
+    height_ratios=[1.0, 0.8],
+    hspace=0.34,
+    wspace=0.035,
+)
+
+ax0 = fig.add_subplot(gs[0, 0])
+ax1 = fig.add_subplot(gs[1, 0], sharex=ax0)
+cax = fig.add_subplot(gs[1, 1])
+
+# Empty upper-right cell: this preserves equal widths of ax0 and ax1
+blank_ax = fig.add_subplot(gs[0, 1])
+blank_ax.axis("off")
+
+# ------------------------------------------------------------
+# A. Signal
+# ------------------------------------------------------------
+ax0.plot(
+    time_plot,
+    signal_plot,
+    lw=0.25,
+    color="k",
+)
+
+ax0.plot(
+    time_plot,
+    2 + bursts_plot * (states_plot == 1),
+    lw=0.35,
+    color=colors[1],
+)
+
+ax0.plot(
+    time_plot,
+    3 + bursts_plot * (states_plot == 2),
+    lw=0.35,
+    color=colors[2],
+)
+
+ax0.set_xlim(time_plot[0], time_plot[-1])
+
+ax0.tick_params(
+    axis="both",
+    which="both",
+    bottom=True,
+    top=False,
+    left=False,
+    right=False,
+    labelbottom=False,
+    labelleft=False,
+)
+
+for spine in ["top", "right", "left"]:
+    ax0.spines[spine].set_visible(False)
+
+ax0.spines["bottom"].set_linewidth(0.8)
+
+ax0.text(
+    -0.07, 1.05,
+    "A",
+    transform=ax0.transAxes,
+    fontsize=14,
+    fontweight="bold",
+    va="bottom",
+    ha="left",
+)
+
+# ------------------------------------------------------------
+# B. Time-delay embedding
+# ------------------------------------------------------------
+pcm = ax1.pcolormesh(
+    time_plot,
+    dim_vec,
+    tde_plot,
+    shading="auto",
+    cmap="viridis",
+    vmin=vmin,
+    vmax=vmax,
+    rasterized=True,
+)
+
+ax1.set_xlim(time_plot[0], time_plot[-1])
+ax1.set_ylim(dim_vec[0], dim_vec[-1])
+
+ax1.set_ylabel("Lags")
+ax1.set_xlabel("Time (s)")
+ax1.set_title("Time-delay embedding", pad=4)
+
+ax1.xaxis.set_major_locator(MaxNLocator(nbins=6))
+ax1.yaxis.set_major_locator(MaxNLocator(nbins=5, integer=True))
+
+for spine in ["top", "right"]:
+    ax1.spines[spine].set_visible(False)
+
+ax1.spines["bottom"].set_linewidth(0.8)
+ax1.spines["left"].set_linewidth(0.8)
+
+ax1.text(
+    -0.07, 1.05,
+    "B",
+    transform=ax1.transAxes,
+    fontsize=14,
+    fontweight="bold",
+    va="bottom",
+    ha="left",
+)
+
+# ------------------------------------------------------------
+# Colorbar: attached to dedicated cax, not ax1
+# ------------------------------------------------------------
+cbar = fig.colorbar(pcm, cax=cax)
+
+cbar.set_label("Amplitude (a.u.)", rotation=270, labelpad=11)
+cbar.outline.set_linewidth(0.6)
+cbar.ax.tick_params(width=0.6, length=2.5)
+
+fig.align_ylabels([ax0, ax1])
+
+
+
+for fmt in ("svg", "pdf"):
+    fig.savefig(
+        fig_dir / f"tde_example.{fmt}",
+        bbox_inches="tight",
+        pad_inches=0.03,
+    )
+
+plt.show()
+
+

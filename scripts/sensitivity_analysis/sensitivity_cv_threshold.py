@@ -57,7 +57,7 @@ plt.rcParams.update({
     "ytick.direction": "out",
     "axes.grid": False,
     "figure.autolayout": False,
-    "savefig.dpi": 900,
+    "savefig.dpi": 600,
     "figure.dpi": 300,
 })
 

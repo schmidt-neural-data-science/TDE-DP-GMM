@@ -75,7 +75,7 @@ plt.rcParams.update({
     "figure.autolayout": True,
 
     # --- DPI ---
-    "savefig.dpi": 900,
+    "savefig.dpi": 600,
     "figure.dpi": 300,
 })
 
