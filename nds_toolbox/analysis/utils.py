@@ -94,6 +94,65 @@ def imputing_mode(states, *, min_samples, window_size=None, missing_value=-1):
     return np.asarray(x, dtype=int)
 
 
+def _run_ends(states, batch_size):
+    for start in range(1, len(states), batch_size):
+        stop = min(start + batch_size, len(states))
+        changes = states[start:stop] != states[start - 1:stop - 1]
+        yield from start + np.flatnonzero(changes)
+    if len(states):
+        yield len(states)
 
 
+def _window_mode(window, missing_value):
+    labels, counts = np.unique(window[window != missing_value], return_counts=True)
+    return labels[np.argmax(counts)]
 
+
+def imputing_mode_batched(
+    states, *, min_samples, window_size=None, missing_value=-1, batch_size=4096
+):
+    """Impute one continuous 1-D sequence in time batches of up to batch_size samples.
+
+    Runs and voting windows can span batches. Filled samples vote on later
+    samples, with ties resolved in favor of the smallest label. If all runs
+    are masked, return the original labels.
+    """
+    if window_size is None:
+        window_size = min_samples
+
+    original = np.asarray(states, dtype=int)
+    if original.ndim != 1:
+        raise ValueError("states must be a one-dimensional sequence")
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+
+    x = original.copy()
+    run_start = 0
+    for end in _run_ends(original, batch_size):
+        if end - run_start < min_samples:
+            x[run_start:end] = missing_value
+        run_start = end
+
+    batches = range(0, len(x), batch_size)
+    radius = max(1, int(window_size // 2))
+
+    if x.size and x[0] == missing_value:
+        for start in batches:
+            known = x[start:start + batch_size] != missing_value
+            if known.any():
+                first_known = start + int(known.argmax())
+                break
+        else:
+            return original
+
+        # Match the first expanded window that reaches a surviving label.
+        first_radius = ((first_known + radius - 1) // radius) * radius
+        x[0] = _window_mode(x[first_known:first_radius + 1], missing_value)
+
+    for start in batches:
+        missing = np.flatnonzero(x[start:start + batch_size] == missing_value)
+        for i in start + missing:
+            # The preceding sample is now filled, so the base window has a voter.
+            window = x[max(0, i - radius):i + radius + 1]
+            x[i] = _window_mode(window, missing_value)
+    return x

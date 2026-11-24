@@ -1,7 +1,32 @@
 import numpy as np
 from sklearn.metrics import adjusted_rand_score, cohen_kappa_score, matthews_corrcoef
 
+from nds_toolbox.analysis.utils import imputing_mode, imputing_mode_batched
 from nds_toolbox.utils.helper import return_performance_info
+
+
+def test_imputation_preserves_runs_and_votes_across_batch_boundaries():
+    # The first expanded window reaches both label 8 and a majority of label 2.
+    states = np.array([-9] * 7 + [8, 2, 2, 2, -9, 4, 4, -9])
+    expected = imputing_mode(states, min_samples=1, window_size=12, missing_value=-9)
+    for batch_size in (1, 2, 5, 64):
+        result = imputing_mode_batched(states, min_samples=1, window_size=12,
+                                       missing_value=-9, batch_size=batch_size)
+        np.testing.assert_array_equal(result, expected)
+
+    # The run of 5s survives, and its votes propagate through two short runs.
+    states = [5, 5, 5, 5, 8, 7, 9, 9, 9, 9]
+    expected = imputing_mode(states, min_samples=4, window_size=2)
+    for batch_size in (1, 3, 4, 64):
+        result = imputing_mode_batched(states, min_samples=4, window_size=2,
+                                       batch_size=batch_size)
+        np.testing.assert_array_equal(result, expected)
+
+
+def test_imputation_returns_original_when_no_run_survives():
+    for states in ([], [-1, -1, -1], [1, 1, 0, 0, 1]):
+        result = imputing_mode_batched(states, min_samples=3, batch_size=2)
+        np.testing.assert_array_equal(result, states)
 
 
 def test_imputation_votes_in_matched_order_and_scores_the_final_labels():
